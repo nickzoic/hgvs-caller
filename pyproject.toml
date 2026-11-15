@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hgvs_caller"
+dynamic = ["version"]
+description = "Call HGVS variant descriptions (g., c., r., p.) from a reference and a variant nucleotide sequence"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "CC0-1.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Nick Moore" }]
+dependencies = []
+keywords = ["HGVS", "variant", "nomenclature", "bioinformatics", "genomics", "sequence"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    "Typing :: Typed",
+]
+
+[project.optional-dependencies]
+# rapidfuzz is only used to size the alignment band: same results, faster on multi-change reads
+fast = ["rapidfuzz>=3"]
+test = ["pytest>=7"]
+dev = ["hgvs_caller[fast,test]", "black>=24", "pylint>=3", "mypy>=1.8"]
+
+[project.urls]
+Repository = "https://github.com/nickzoic/hgvs-caller"
+Issues = "https://github.com/nickzoic/hgvs-caller/issues"
+"HGVS Nomenclature" = "https://hgvs-nomenclature.org/stable/"
+
+[tool.setuptools.dynamic]
+version = { attr = "hgvs_caller.__version__" }
+
+[tool.setuptools.package-data]
+hgvs_caller = ["py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "src", "README.md"]
+addopts = ["--doctest-modules", "--doctest-glob=README.md", "--import-mode=importlib"]
+# src: tests run from a checkout without installing; tests: shared test helpers
+pythonpath = ["src", "tests"]
+
+[tool.black]
+line-length = 120
+
+[tool.pylint.format]
+max-line-length = 120
+
+[tool.pylint."messages control"]
+disable = [
+    "missing-function-docstring",
+    "too-few-public-methods",
+    "too-many-arguments",
+    "too-many-positional-arguments",
+    # the HGVS rules are a sequence of distinct cases; splitting them up hides that
+    "too-many-branches",
+    "too-many-locals",
+    "too-many-return-statements",
+    # the tests' full alignment deliberately mirrors the traceback of the banded one
+    "duplicate-code",
+]
+
+[tool.mypy]
+mypy_path = "src:tests"
+ignore_missing_imports = true
