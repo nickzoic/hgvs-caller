@@ -1,4 +1,4 @@
-# hgvs_caller
+# HGVS Caller
 
 [![tests](https://github.com/nickzoic/hgvs-caller/actions/workflows/tests.yml/badge.svg)](https://github.com/nickzoic/hgvs-caller/actions/workflows/tests.yml)
 
@@ -179,7 +179,24 @@ package). They include:
 
 Two examples from the specification are not included: the exon/intron junction examples
 (their sequences are not contiguous), and `c.-23A>T` from the protein Extension Q&A, whose
-sequence shows a G>T change (`CAGGGT` to `CATGGT`), i.e. `c.-23G>T`.
+sequence shows a `G>T` change (`CAGGGT` to `CATGGT`), i.e. `c.-23G>T`.
+
+## Origin
+
+This code was written almost entirely by [Claude](https://claude.ai/) and I'm not pretending
+otherwise.  The prompts I gave it were (approximately):
+
+> extract all the examples from the HGVS specification site at https://hgvs-nomenclature.org/stable/
+> which show a sequence variation and its HGVS description and build a python list of tuples
+> which can be used to test an implementation.
+>
+> include only examples where the before and after sequences can be found in the example text.
+> output tests as a pytest compatible file.
+>
+> write a python function which takes two nucleotide sequences and returns an HGVS string representing
+> the variant.  The function should pass all the tests above.
+>
+> make this into a python package with a README.md, pyproject.toml and make the tests run under pytest.
 
 ## Licence
 
