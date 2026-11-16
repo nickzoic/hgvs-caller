@@ -26,6 +26,8 @@ Not supported: intronic positions (c.88+1), repeat notation (c.89_118AGC[13]), a
 descriptions of uncertain positions.
 """
 
+import heapq
+import re
 from typing import Callable, Optional
 
 # optional: edit distance in C, used only to size the alignment band; with score_cutoff it
@@ -263,15 +265,23 @@ def _align(ref: str, alt: str) -> list[str]:  # pylint: disable=too-many-stateme
                 if j == 0:
                     e_row[c] = start + (i - 1) * extend
                     continue
-                if r_char == alt[j - 1]:
-                    s_row[c] = min(s_prev[c], e_prev[c])  # same c in the previous row
+                # (comparisons rather than min(): this loop is where the time goes)
+                if r_char == alt[j - 1]:  # a match: same c in the previous row
+                    s_row[c] = s_prev[c] if s_prev[c] < e_prev[c] else e_prev[c]
                     best = inf
                 else:
-                    best = min(s_prev[c] + start, e_prev[c] + extend)
+                    best, other = s_prev[c] + start, e_prev[c] + extend
+                    best = other if other < best else best
                 if c + 1 < cols:  # from above: (i-1, j), a deletion
-                    best = min(best, s_prev[c + 1] + start, e_prev[c + 1] + extend)
+                    other = s_prev[c + 1] + start
+                    best = other if other < best else best
+                    other = e_prev[c + 1] + extend
+                    best = other if other < best else best
                 if c:  # from the left: (i, j-1), an insertion
-                    best = min(best, s_row[c - 1] + start, e_row[c - 1] + extend)
+                    other = s_row[c - 1] + start
+                    best = other if other < best else best
+                    other = e_row[c - 1] + extend
+                    best = other if other < best else best
                 e_row[c] = best
         if min(same[n][m - n - low], edit[n][m - n - low]) // k <= 2 * width + 2 or width >= n + m:
             break
@@ -323,6 +333,9 @@ def _common_length(x: str, y: str, limit: int, from_end: bool) -> int:
     return low
 
 
+_EDITS = re.compile(r"[XDI]+")
+
+
 def _blocks(ref: str, alt: str, inversions: bool, align=_align_edits) -> list[list[int]]:
     """Changed regions between ref and alt as [ref_start, ref_end, alt_start, alt_end]
     (python-style half-open ranges), in order.
@@ -347,19 +360,17 @@ def _blocks(ref: str, alt: str, inversions: bool, align=_align_edits) -> list[li
         ops = align(r_mid, a_mid)
     except _RegionTooDifferent:
         return single
+    # runs of edits are the changes; matches before a run move both sequences on
+    path = "".join(reversed(ops))
     blocks: list[list[int]] = []
-    i, j = prefix, prefix
-    for op in reversed(ops):
-        if op == "=":
-            i, j = i + 1, j + 1
-            continue
-        if not blocks or blocks[-1][1] != i or blocks[-1][3] != j:
-            blocks.append([i, i, j, j])
-        if op in "XD":
-            i += 1
-        if op in "XI":
-            j += 1
-        blocks[-1][1], blocks[-1][3] = i, j
+    i = j = prefix
+    end = 0
+    for run in _EDITS.finditer(path):
+        i, j = i + run.start() - end, j + run.start() - end
+        substituted = run.group().count("X")
+        r_len, a_len = substituted + run.group().count("D"), substituted + run.group().count("I")
+        blocks.append([i, i + r_len, j, j + a_len])
+        i, j, end = i + r_len, j + a_len, run.end()
     return blocks
 
 
@@ -380,6 +391,16 @@ def _cost(ref: str, alt: str, blocks: list[list[int]]) -> tuple[int, int]:
 def _offset_blocks(ref: str, alt: str, r_start: int, a_start: int) -> list[list[int]]:
     """_blocks of ref and alt aligned with _align, with positions moved by r_start and a_start"""
     return [[b[0] + r_start, b[1] + r_start, b[2] + a_start, b[3] + a_start] for b in _blocks(ref, alt, True, _align)]
+
+
+def _side_bound(ref: str, alt: str) -> tuple[int, int]:
+    """A lower bound of _cost for the changes from ref to alt: (edits + changes, edits).
+    Edits are at least the difference in length, or 1: not the edit distance, as any change
+    can be an inversion, which counts 2 edits however long it is."""
+    if ref == alt:
+        return 0, 0
+    edits = max(1, abs(len(ref) - len(alt)))
+    return edits + 1, edits
 
 
 def _refine_cluster(ref: str, alt: str, cluster: list[list[int]]) -> list[list[int]]:
@@ -403,15 +424,15 @@ def _refine_cluster(ref: str, alt: str, cluster: list[list[int]]) -> list[list[i
                 runs[p][q] = runs[p - 1][q - 1] + 1
     # the longest common substrings (maximal: not extending further), and in small regions
     # also shorter ones, nearest first to the diagonals of the changes around them
-    longest = sorted(
+    longest = heapq.nlargest(
+        20,
         (
             (runs[p][q], p, q)
             for p in range(1, n + 1)
             for q in range(1, m + 1)
             if runs[p][q] >= MIN_INVERSION_LENGTH and (p == n or q == m or runs[p + 1][q + 1] == 0)
         ),
-        reverse=True,
-    )[:20]
+    )
     nearest: list[tuple[int, int, int]] = []
     if n * m <= 2500:
 
@@ -419,7 +440,8 @@ def _refine_cluster(ref: str, alt: str, cluster: list[list[int]]) -> list[list[i
             diagonal = (q - length) - (n - p)  # alt start minus ref start, within the region
             return min(abs(diagonal), abs(diagonal - (m - n)))
 
-        nearest = sorted(
+        nearest = heapq.nsmallest(
+            20,
             (
                 (length, p, q)
                 for p in range(1, n + 1)
@@ -427,7 +449,7 @@ def _refine_cluster(ref: str, alt: str, cluster: list[list[int]]) -> list[list[i
                 for length in range(MIN_INVERSION_LENGTH, runs[p][q] + 1)
             ),
             key=lambda c: (distance(*c), -c[0]),
-        )[:20]
+        )
     candidates = list(dict.fromkeys(longest + nearest))
     best, best_cost = cluster, _cost(ref, alt, cluster)
     for length, p, q in candidates:
@@ -438,11 +460,19 @@ def _refine_cluster(ref: str, alt: str, cluster: list[list[int]]) -> list[list[i
             r_inv, a_inv, length = r_inv + 1, a_inv + 1, length - 2
         if length < MIN_INVERSION_LENGTH:
             continue
-        blocks = (
-            _offset_blocks(ref[r0:r_inv], alt[a0:a_inv], r0, a0)
-            + [[r_inv, r_inv + length, a_inv, a_inv + length]]
-            + _offset_blocks(ref[r_inv + length : r1], alt[a_inv + length : a1], r_inv + length, a_inv + length)
-        )
+        # Lower bounds of the cost, to skip candidates that cannot cost less than the best
+        # (so the result is the same as aligning every candidate): the inversion (2 edits,
+        # 1 change) and the bounds of both sides, then again with the left side aligned.
+        left = (ref[r0:r_inv], alt[a0:a_inv], r0, a0)
+        right = (ref[r_inv + length : r1], alt[a_inv + length : a1], r_inv + length, a_inv + length)
+        bounds = [_side_bound(side[0], side[1]) for side in (left, right)]
+        if (3 + sum(b[0] for b in bounds), 2 + sum(b[1] for b in bounds)) >= best_cost:
+            continue
+        left_blocks = _offset_blocks(*left)
+        left_cost = _cost(ref, alt, left_blocks)
+        if (3 + left_cost[0] + bounds[1][0], 2 + left_cost[1] + bounds[1][1]) >= best_cost:
+            continue
+        blocks = left_blocks + [[r_inv, r_inv + length, a_inv, a_inv + length]] + _offset_blocks(*right)
         cost = _cost(ref, alt, blocks)
         if cost < best_cost:
             best, best_cost = blocks, cost
@@ -759,9 +789,12 @@ class _Protein:  # pylint: disable=too-many-instance-attributes
 # --------------------------------------------------------------------------- API
 
 
+_NOT_BASES = str.maketrans("", "", "ACGTN")  # deletes A, C, G, T and N
+
+
 def _clean(seq: str, what: str) -> str:
     seq = seq.strip().upper().replace("U", "T")
-    if not seq or seq.strip("ACGTN"):
+    if not seq or seq.translate(_NOT_BASES):  # anything left is not a base
         raise ValueError(f"Invalid {what} sequence")
     return seq
 
