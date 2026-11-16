@@ -1,4 +1,4 @@
-"""Test variant calling against examples from the HGVS Nomenclature specification.
+"""Test variant extraction against examples from the HGVS Nomenclature specification.
 
 Examples are taken from HGVS Nomenclature 21.1.5 (https://hgvs-nomenclature.org/stable/,
 text CC0), from the "Examples" sections and the Notes / Q&A passages, selecting only
@@ -6,7 +6,7 @@ those where the text gives both the reference and the variant sequence. Each exa
 was checked against the spec: applying the spec's description to the reference
 reproduces the variant sequence.
 
-Adaptations, since the caller works on two nucleotide sequences:
+Adaptations, since the extractor works on two nucleotide sequences:
 
 * only the part after the accession (``NM_004006.2:``) is compared;
 * ``offset`` is set so that the first base of ``ref`` gets the coordinate the spec gives it;
@@ -22,16 +22,16 @@ import pytest
 
 from hgvs_apply import AA1, apply_nucleotide, apply_protein, norm
 
-from hgvs_caller import find_variant_string
+from variant_extractor import extract_variant_string
 
 SPEC = "https://hgvs-nomenclature.org/stable/recommendations/"
 
-# (expected, kind, ref, alt, offset, source page, options for find_variant_string)
+# (expected, kind, ref, alt, offset, source page, options for extract_variant_string)
 #   kind: "dna" / "rna"   -- ref and alt are nucleotide sequences
 #         "protein"       -- ref and alt are amino acid sequences (3-letter codes)
 #         "dna-protein"   -- protein description, ref and alt given as coding DNA
-#   offset: passed to find_variant_string (position of first base of ref, minus 1;
-#           for protein calling it is a nucleotide offset)
+#   offset: passed to extract_variant_string (position of first base of ref, minus 1;
+#           for protein extraction it is a nucleotide offset)
 EXAMPLES = [
     # --- deletion
     ("g.33344591del", "dna", "TGTGATTCT", "TGTGTTCT", 33344586, "DNA/deletion/", {}),
@@ -147,11 +147,11 @@ def back_translate(protein: str) -> str:
     return "".join(CODON_FOR[aa] for aa in re.findall(r"[A-Z][a-z]{2}", protein))
 
 
-def call(expected: str, kind: str, ref: str, alt: str, offset: int, options: dict) -> str:
-    """call the variant with find_variant_string"""
+def extract(expected: str, kind: str, ref: str, alt: str, offset: int, options: dict) -> str:
+    """extract the variant with extract_variant_string"""
     if kind == "protein":
         ref, alt = back_translate(ref), back_translate(alt)
-    return find_variant_string(expected[:2], ref, alt, offset=offset, **options)
+    return extract_variant_string(expected[:2], ref, alt, offset=offset, **options)
 
 
 def _params(examples):
@@ -163,11 +163,11 @@ def _params(examples):
 
 @pytest.mark.parametrize("expected,kind,ref,alt,offset,source,options", _params(EXAMPLES))
 def test_hgvs_spec_example(expected, kind, ref, alt, offset, source, options):
-    """the caller gives the same description as the HGVS specification"""
-    assert call(expected, kind, ref, alt, offset, options) == expected, f"see {source}"
+    """the extractor gives the same description as the HGVS specification"""
+    assert extract(expected, kind, ref, alt, offset, options) == expected, f"see {source}"
 
 
-# Independent of the exact description: applying the called variant to the reference
+# Independent of the exact description: applying the extracted variant to the reference
 # must give the variant sequence.
 
 
@@ -175,9 +175,9 @@ def test_hgvs_spec_example(expected, kind, ref, alt, offset, source, options):
     "expected,kind,ref,alt,offset,source,options", _params(e for e in EXAMPLES if e[1] in ("dna", "rna"))
 )
 def test_called_variant_reproduces_sequence(expected, kind, ref, alt, offset, source, options):
-    """applying the called variant to the reference gives the variant sequence"""
-    called = call(expected, kind, ref, alt, offset, options)
-    assert apply_nucleotide(called, ref, offset) == norm(alt), f"called {called}, see {source}"
+    """applying the extracted variant to the reference gives the variant sequence"""
+    extracted = extract(expected, kind, ref, alt, offset, options)
+    assert apply_nucleotide(extracted, ref, offset) == norm(alt), f"extracted {extracted}, see {source}"
 
 
 def test_apply_helper_with_spec_descriptions():

@@ -2,13 +2,13 @@
 
 For random reference sequences and random changes, check that:
 
-* applying the called description to the reference gives the variant sequence;
+* applying the extracted description to the reference gives the variant sequence;
 * deletions and duplications are at their most 3' position (3' rule);
 * protein descriptions reproduce the variant protein, frameshifts give the right first
   changed residue and stop position, and a new stop codon is always described as Ter;
 * the banded alignment gives exactly the same result as a full alignment.
 
-Set HGVS_CALLER_PROPERTY_CASES to change the number of random cases per test.
+Set VARIANT_EXTRACTOR_PROPERTY_CASES to change the number of random cases per test.
 """
 
 import os
@@ -18,11 +18,11 @@ import re
 import pytest
 from hgvs_apply import apply_nucleotide, check_protein, revcomp
 
-import hgvs_caller.caller as caller_module
-from hgvs_caller import find_variant_string
+import variant_extractor.extractor as extractor_module
+from variant_extractor import extract_variant_string
 
-CASES = int(os.environ.get("HGVS_CALLER_PROPERTY_CASES", "3000"))
-SENSE_CODONS = [codon for codon, aa in caller_module.CODON_TABLE.items() if aa != "*"]
+CASES = int(os.environ.get("VARIANT_EXTRACTOR_PROPERTY_CASES", "3000"))
+SENSE_CODONS = [codon for codon, aa in extractor_module.CODON_TABLE.items() if aa != "*"]
 
 
 def mutate(rng: random.Random, seq: str) -> str:
@@ -66,20 +66,20 @@ def nucleotide_cases(seed: int):
 
 @pytest.mark.parametrize("seed", [1, 2])
 def test_nucleotide_round_trip(seed):
-    """applying the called description to the reference gives the variant"""
+    """applying the extracted description to the reference gives the variant"""
     for kind, ref, alt, offset, merge in nucleotide_cases(seed):
-        called = find_variant_string(kind + ".", ref, alt, offset=offset, merge_one_nt=merge)
-        assert apply_nucleotide(called, ref, offset) == alt, (ref, alt, offset, called)
+        extracted = extract_variant_string(kind + ".", ref, alt, offset=offset, merge_one_nt=merge)
+        assert apply_nucleotide(extracted, ref, offset) == alt, (ref, alt, offset, extracted)
 
 
 @pytest.mark.parametrize("seed", [3])
 def test_nucleotide_3prime_rule(seed):
     """a single deletion or duplication cannot be moved further 3'"""
     for _, ref, alt, _, _ in nucleotide_cases(seed):
-        called = find_variant_string("g.", ref, alt)
-        if m := re.fullmatch(r"g\.(\d+)(?:_(\d+))?(del|dup)", called):
+        extracted = extract_variant_string("g.", ref, alt)
+        if m := re.fullmatch(r"g\.(\d+)(?:_(\d+))?(del|dup)", extracted):
             start, end = int(m.group(1)) - 1, int(m.group(2) or m.group(1)) - 1
-            assert end + 1 >= len(ref) or ref[start] != ref[end + 1], (ref, alt, called)
+            assert end + 1 >= len(ref) or ref[start] != ref[end + 1], (ref, alt, extracted)
 
 
 def protein_cases(seed: int):
@@ -112,7 +112,7 @@ def protein_cases(seed: int):
 def test_protein_consequence(seed):
     """protein descriptions are consistent with the translated sequences"""
     for ref, alt in protein_cases(seed):
-        check_protein(ref, alt, find_variant_string("p.", ref, alt))
+        check_protein(ref, alt, extract_variant_string("p.", ref, alt))
 
 
 def test_protein_check_catches_unlabelled_new_stop():
@@ -122,7 +122,7 @@ def test_protein_check_catches_unlabelled_new_stop():
 
 
 def full_alignment_edits(ref: str, alt: str) -> list[str]:
-    """unbanded version of caller._align_edits (fewest edits), for comparison"""
+    """unbanded version of extractor._align_edits (fewest edits), for comparison"""
     n, m = len(ref), len(alt)
     dist = [list(range(m + 1))] + [[i] + [0] * m for i in range(1, n + 1)]
     for i in range(1, n + 1):
@@ -143,7 +143,7 @@ def full_alignment_edits(ref: str, alt: str) -> list[str]:
 
 
 def full_alignment(ref: str, alt: str) -> list[str]:
-    """unbanded version of caller._align (fewest edits + changes, then edits), for comparison"""
+    """unbanded version of extractor._align (fewest edits + changes, then edits), for comparison"""
     n, m = len(ref), len(alt)
     k = n + m + 2
     extend, start, inf = k + 1, 2 * k + 1, 3 * (n + m + 1) * k
@@ -194,11 +194,11 @@ def test_banded_alignment_equals_full_alignment(aligner, use_rapidfuzz, monkeypa
     """each banded alignment gives the same alignment as its unbanded version, with or
     without rapidfuzz"""
     # pylint: disable=protected-access
-    if use_rapidfuzz and caller_module._edit_distance is None:
+    if use_rapidfuzz and extractor_module._edit_distance is None:
         pytest.skip("rapidfuzz not installed")
     if not use_rapidfuzz:
-        monkeypatch.setattr(caller_module, "_edit_distance", None)
-    banded = getattr(caller_module, aligner)
+        monkeypatch.setattr(extractor_module, "_edit_distance", None)
+    banded = getattr(extractor_module, aligner)
     full = full_alignment_edits if aligner == "_align_edits" else full_alignment
     rng = random.Random(6)
     for n in range(CASES):
@@ -209,7 +209,7 @@ def test_banded_alignment_equals_full_alignment(aligner, use_rapidfuzz, monkeypa
 
 def test_round_trip_without_rapidfuzz(monkeypatch):
     """results do not depend on whether rapidfuzz is installed"""
-    monkeypatch.setattr(caller_module, "_edit_distance", None)
+    monkeypatch.setattr(extractor_module, "_edit_distance", None)
     for kind, ref, alt, offset, merge in nucleotide_cases(7):
-        called = find_variant_string(kind + ".", ref, alt, offset=offset, merge_one_nt=merge)
-        assert apply_nucleotide(called, ref, offset) == alt, (ref, alt, offset, called)
+        extracted = extract_variant_string(kind + ".", ref, alt, offset=offset, merge_one_nt=merge)
+        assert apply_nucleotide(extracted, ref, offset) == alt, (ref, alt, offset, extracted)

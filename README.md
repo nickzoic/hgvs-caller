@@ -1,14 +1,14 @@
-# HGVS Caller
+# Variant Extractor
 
 [![tests](https://github.com/nickzoic/hgvs-caller/actions/workflows/tests.yml/badge.svg)](https://github.com/nickzoic/hgvs-caller/actions/workflows/tests.yml)
 
-Call [HGVS](https://hgvs-nomenclature.org/stable/) variant descriptions from two sequences:
+Extract [HGVS](https://hgvs-nomenclature.org/stable/) variant descriptions from two sequences:
 give it a reference and a variant nucleotide sequence, get back a description such as
 `c.20_23dup`, `r.775delinsga` or `p.Glu5ValfsTer5`.
 
 ```python
->>> from hgvs_caller import find_variant_string
->>> find_variant_string("c.", "AGAAGTAGAGG", "AGAAGTAGATAGAGG", offset=14)
+>>> from variant_extractor import extract_variant_string
+>>> extract_variant_string("c.", "AGAAGTAGAGG", "AGAAGTAGATAGAGG", offset=14)
 'c.20_23dup'
 
 ```
@@ -22,8 +22,8 @@ give it a reference and a variant nucleotide sequence, get back a description su
 ## Installation
 
 ```sh
-pip install hgvs_caller           # pure Python
-pip install "hgvs_caller[fast]"   # also installs rapidfuzz: faster for reads with several changes
+pip install variant_extractor           # pure Python
+pip install "variant_extractor[fast]"   # also installs rapidfuzz: faster for reads with several changes
 ```
 
 From a checkout of https://github.com/nickzoic/hgvs-caller: `pip install .`
@@ -32,7 +32,7 @@ From a checkout of https://github.com/nickzoic/hgvs-caller: `pip install .`
 ## Usage
 
 ```python
->>> from hgvs_caller import find_variant_string, find_variants
+>>> from variant_extractor import extract_variant_string, extract_variants
 
 ```
 
@@ -42,11 +42,11 @@ starting three bases before the start codon (`c.-3`) has `offset=-4`. Other coor
 at 1, so for them a negative `offset` raises `ValueError`.
 
 ```python
->>> find_variant_string("g.", "TGTGATTCT", "TGTGTTCT", offset=33344586)
+>>> extract_variant_string("g.", "TGTGATTCT", "TGTGTTCT", offset=33344586)
 'g.33344591del'
->>> find_variant_string("c.", "CCCATG", "CCGATG", offset=-4)
+>>> extract_variant_string("c.", "CCCATG", "CCGATG", offset=-4)
 'c.-1C>G'
->>> find_variant_string("NM_004006.2:c.", "AGAAGTAGAGG", "AGAAGTTAGAGG", offset=14)
+>>> extract_variant_string("NM_004006.2:c.", "AGAAGTAGAGG", "AGAAGTTAGAGG", offset=14)
 'NM_004006.2:c.20dup'
 
 ```
@@ -56,7 +56,7 @@ type. Input may be upper or lower case, with `T` or `U`; `r.` descriptions are w
 lower case with `u`:
 
 ```python
->>> find_variant_string("r.", "aggcucauu", "aggcgacauu", offset=770)
+>>> extract_variant_string("r.", "aggcucauu", "aggcgacauu", offset=770)
 'r.775delinsga'
 
 ```
@@ -64,11 +64,11 @@ lower case with `u`:
 Several changes are returned as an allele, no change as `=`:
 
 ```python
->>> find_variant_string("g.", "GATTACA", "GTTTAGA")
+>>> extract_variant_string("g.", "GATTACA", "GTTTAGA")
 'g.[2A>T;6C>G]'
->>> find_variant_string("g.", "GATTACA", "GATTACA")
+>>> extract_variant_string("g.", "GATTACA", "GATTACA")
 'g.='
->>> find_variants("g.", "GATTACA", "GTTTAGA")
+>>> extract_variants("g.", "GATTACA", "GTTTAGA")
 ['2A>T', '6C>G']
 
 ```
@@ -79,17 +79,17 @@ With a `p.` prefix the sequences are coding DNA: the reading frame starts at the
 boundary at or after the start of `ref_seq` (with `offset=0`, `ref_seq` starts with codon 1).
 
 ```python
->>> find_variant_string("p.", "ATGGATGCATACGAGATGAGG", "ATGGATGCATACGTGCATACGAGATGAGG")
+>>> extract_variant_string("p.", "ATGGATGCATACGAGATGAGG", "ATGGATGCATACGTGCATACGAGATGAGG")
 'p.Glu5ValfsTer5'
->>> find_variant_string("p.", "ATGGATGCATACGAGATGAGG", "ATGGATGCATACGTGCATACGAGATGAGG", fs_short=True)
+>>> extract_variant_string("p.", "ATGGATGCATACGAGATGAGG", "ATGGATGCATACGTGCATACGAGATGAGG", fs_short=True)
 'p.Glu5fs'
->>> find_variant_string("p.", "ATGGTTGGTTCATAA", "ATGGTTTGATCATAA")
+>>> extract_variant_string("p.", "ATGGTTGGTTCATAA", "ATGGTTTGATCATAA")
 'p.Gly3Ter'
->>> find_variant_string("p.", "ATGAAAATGCATTGGTAA", "ATGAAAATGGGGTAGCATTGGTAA")
+>>> extract_variant_string("p.", "ATGAAAATGCATTGGTAA", "ATGAAAATGGGGTAGCATTGGTAA")
 'p.Met3_His4insGlyTer'
->>> find_variant_string("p.", "ATGGTTGGTTCATAA", "ATGGTTGGTTCACAAGGTTGAAAA")
+>>> extract_variant_string("p.", "ATGGTTGGTTCATAA", "ATGGTTGGTTCACAAGGTTGAAAA")
 'p.Ter5GlnextTer2'
->>> find_variant_string("p.", "TGC", "TGT", offset=561)
+>>> extract_variant_string("p.", "TGC", "TGT", offset=561)
 'p.Cys188='
 
 ```
@@ -99,10 +99,10 @@ deleted at the end of the read), the result is `p.?`, "effect unknown".
 
 ### API
 
-`find_variant_string(prefix, ref_seq, var_seq, max_mutations=None, offset=0, minus_strand=False, **options)`
-returns the description as a string. The signature is compatible with
-[countess-variant-caller](https://github.com/CountESS-Project/countess-variant-caller)'s function
-of the same name.
+`extract_variant_string(prefix, ref_seq, var_seq, max_mutations=None, offset=0, minus_strand=False, **options)`
+returns the description as a string. Apart from its name, the signature is that of
+[countess-variant-caller](https://github.com/CountESS-Project/countess-variant-caller)'s
+`find_variant_string`.
 
 - `max_mutations`: raise `TooManyVariationsException` (a `ValueError`) if more changes are found.
 - `minus_strand`: reverse-complement both sequences first.
@@ -115,7 +115,7 @@ of the same name.
   in the reference sequence, e.g. `g.17_18ins5_16` or `p.His7_Gln8insGly4_Ser6`.
   Defaults: 10 nucleotides, 3 amino acids.
 
-`find_variants(...)` takes the same arguments (without `max_mutations`) and returns the list of
+`extract_variants(...)` takes the same arguments (without `max_mutations`) and returns the list of
 descriptions without the prefix. Invalid sequences or prefixes raise `ValueError`.
 `reverse_complement(dna)` and `translate(dna, to_stop=True)` are exported as well.
 
@@ -130,7 +130,7 @@ descriptions without the prefix. Invalid sequences or prefixes raise `ValueError
   next to another one, as in the spec's `g.[776788_93191545inv;93191546T>C]`:
 
   ```python
-  >>> find_variant_string("g.", "AAGAAGATGGCTCCTG", "AAGAAGCCATGTCCTG")
+  >>> extract_variant_string("g.", "AAGAAGATGGCTCCTG", "AAGAAGCCATGTCCTG")
   'g.[7_10inv;11C>G]'
 
   ```
@@ -194,15 +194,15 @@ coverage; a longer fuzz run; linting; and a test of the built package. They incl
 - `tests/test_properties.py`: seeded randomized tests: the described change reproduces the
   variant sequence (or protein), the 3' rule holds, a new stop codon as the first changed
   residue is described as nonsense, and the banded alignment equals a full alignment. Set
-  `HGVS_CALLER_PROPERTY_CASES` (default 3000) for more cases.
+  `VARIANT_EXTRACTOR_PROPERTY_CASES` (default 3000) for more cases.
 - `tests/test_fuzz.py`: fuzz tests with [Hypothesis](https://hypothesis.readthedocs.io/),
   which generates inputs and shrinks any failure to a minimal example: any input gives a
   well-formed HGVS description or a `ValueError`; every description matches the HGVS grammar
   and reproduces the variant; unrelated sequence pairs as well as similar ones; and case, T/U,
   strand and offset changes only change the result as they should. Cases they found are kept
   as regression tests in `tests/test_api.py`.
-- `tests/test_description_extractor.py`: the test cases of the Mutalyzer
-  [description extractor](https://github.com/mutalyzer/description-extractor), and 500 of its
+- `tests/test_description_extractor.py`: the test cases of Mutalyzer's
+  [description-extractor](https://github.com/mutalyzer/description-extractor), and 500 of its
   results on random sequence pairs (see below); all give the same description.
 - the doctests in the package and in this README.
 
@@ -210,23 +210,23 @@ Two examples from the specification are not included: the exon/intron junction e
 (their sequences are not contiguous), and `c.-23A>T` from the protein Extension Q&A, whose
 sequence shows a `G>T` change (`CAGGGT` to `CATGGT`), i.e. `c.-23G>T`.
 
-### Comparison with the Mutalyzer description extractor
+### Comparison with Mutalyzer's description-extractor
 
-`tools/compare_description_extractor.py` runs both on random sequence pairs (it needs the
-extractor built: Python 3.10, SWIG from PyPI, biopython and
+`tools/compare_description_extractor.py` runs both on random sequence pairs (it needs
+description-extractor built: Python 3.10, SWIG from PyPI, biopython and
 `git+https://github.com/mutalyzer/crossmapper-legacy.git`). On 20,000 pairs:
 
 | share | |
 |-------|-|
 | 74.0% | the same description |
-| 17.9% | the extractor joins separate changes in one delins (`32_41delinsTCCCAT` for `[32_33del;36_38del;43dup]`); HGVS describes changes separated by one or more nucleotides individually |
-| 7.0%  | both correct, different alignment: the extractor minimizes the length of the description, hgvs_caller edits plus changes (see Method) |
-| 0.8%  | the extractor's description does not give the variant sequence (e.g. an inversion one base out) |
-| 0.3%  | the extractor uses a position outside the reference (`0_1insAATAC`) |
+| 17.9% | description-extractor joins separate changes in one delins (`32_41delinsTCCCAT` for `[32_33del;36_38del;43dup]`); HGVS describes changes separated by one or more nucleotides individually |
+| 7.0%  | both correct, different alignment: description-extractor minimizes the length of the description, variant_extractor edits plus changes (see Method) |
+| 0.8%  | description-extractor's description does not give the variant sequence (e.g. an inversion one base out) |
+| 0.3%  | description-extractor uses a position outside the reference (`0_1insAATAC`) |
 
-Every description from hgvs_caller gave the variant sequence. Where both are correct and the
-extractor does not join separate changes, scored by hgvs_caller's measure (edits plus changes,
-then edits): hgvs_caller's description costs less for 1574 pairs, the same for 235, and more
+Every description from variant_extractor gave the variant sequence. Where both are correct and
+description-extractor does not join separate changes, scored by variant_extractor's measure (edits plus changes,
+then edits): variant_extractor's description costs less for 1574 pairs, the same for 235, and more
 for 13, all with several inversions close together.
 
 ## Origin

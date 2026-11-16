@@ -17,8 +17,8 @@ from hgvs_apply import apply_nucleotide, check_protein, revcomp
 from hypothesis import assume, given
 from hypothesis import strategies as st
 
-import hgvs_caller.caller as caller_module
-from hgvs_caller import TooManyVariationsException, find_variant_string, find_variants
+import variant_extractor.extractor as extractor_module
+from variant_extractor import TooManyVariationsException, extract_variant_string, extract_variants
 
 # --------------------------------------------------------------------------- grammar
 
@@ -130,7 +130,7 @@ def offsets(kind: str):
     return st.integers(-200, 10**7) if kind in "cr" else st.integers(0, 10**7)
 
 
-SENSE = [codon for codon, aa in caller_module.CODON_TABLE.items() if aa != "*"]
+SENSE = [codon for codon, aa in extractor_module.CODON_TABLE.items() if aa != "*"]
 
 
 @st.composite
@@ -154,7 +154,7 @@ def coding_pairs(draw):
 )
 def test_any_input_gives_description_or_value_error(prefix, ref, alt, offset, fs_short, merge, min_copy):
     try:
-        description = find_variant_string(
+        description = extract_variant_string(
             prefix, ref, alt, offset=offset, fs_short=fs_short, merge_one_nt=merge, min_copy_length=min_copy
         )
     except ValueError:
@@ -173,7 +173,7 @@ def test_nucleotide_descriptions(data, pair, prefix):
     offset = data.draw(offsets(kind), label="offset")
     merge = data.draw(st.sampled_from(["codon", "always", "never"]), label="merge_one_nt")
     min_copy = data.draw(st.one_of(st.none(), st.integers(2, 12)), label="min_copy_length")
-    description = find_variant_string(prefix, ref, alt, offset=offset, merge_one_nt=merge, min_copy_length=min_copy)
+    description = extract_variant_string(prefix, ref, alt, offset=offset, merge_one_nt=merge, min_copy_length=min_copy)
     assert_well_formed(description, prefix)
     check_nucleotide_positions(description, prefix, len(ref), offset)
     assert apply_nucleotide(description[len(prefix) - 2 :], ref, offset) == alt
@@ -187,7 +187,7 @@ def test_single_deletion_and_duplication(ref, data):
     for alt, op in ((ref[:i] + ref[i + n :], "del"), (ref[: i + n] + ref[i : i + n] + ref[i + n :], "dup")):
         if not alt:
             continue
-        description = find_variant_string("g.", ref, alt)
+        description = extract_variant_string("g.", ref, alt)
         m = re.fullmatch(rf"g\.(\d+)(?:_(\d+))?{op}", description)
         assert m, (ref, alt, description)
         start, end = int(m.group(1)) - 1, int(m.group(2) or m.group(1)) - 1
@@ -201,37 +201,37 @@ def test_single_deletion_and_duplication(ref, data):
 @given(pair=sequence_pairs(), prefix=st.sampled_from(["g.", "c.", "r."]))
 def test_case_and_rna_input_do_not_matter(pair, prefix):
     ref, alt = pair
-    expected = find_variant_string(prefix, ref, alt)
-    assert find_variant_string(prefix, ref.lower(), alt.lower()) == expected
-    assert find_variant_string(prefix, ref.replace("T", "U"), alt.replace("T", "U").lower()) == expected
+    expected = extract_variant_string(prefix, ref, alt)
+    assert extract_variant_string(prefix, ref.lower(), alt.lower()) == expected
+    assert extract_variant_string(prefix, ref.replace("T", "U"), alt.replace("T", "U").lower()) == expected
 
 
 @given(pair=sequence_pairs())
 def test_minus_strand_is_reverse_complement(pair):
     ref, alt = pair
-    expected = find_variant_string("g.", revcomp(ref), revcomp(alt))
-    assert find_variant_string("g.", ref, alt, minus_strand=True) == expected
+    expected = extract_variant_string("g.", revcomp(ref), revcomp(alt))
+    assert extract_variant_string("g.", ref, alt, minus_strand=True) == expected
 
 
 @given(pair=sequence_pairs(), offset=st.integers(0, 10**7))
 def test_offset_only_shifts_coordinates(pair, offset):
     ref, alt = pair
-    unshifted = find_variant_string("g.", ref, alt)
+    unshifted = extract_variant_string("g.", ref, alt)
     shifted = re.sub(r"\d+", lambda m: str(int(m.group()) + offset), unshifted)
-    assert find_variant_string("g.", ref, alt, offset=offset) == shifted
+    assert extract_variant_string("g.", ref, alt, offset=offset) == shifted
 
 
 @given(ref=any_dna, prefix=st.sampled_from(PREFIXES + ["p."]))
 def test_no_change(ref, prefix):
-    assert find_variant_string(prefix, ref, ref) == prefix + "="
+    assert extract_variant_string(prefix, ref, ref) == prefix + "="
 
 
 @given(pair=sequence_pairs(), limit=st.integers(0, 5))
-def test_max_mutations_agrees_with_find_variants(pair, limit):
+def test_max_mutations_agrees_with_extract_variants(pair, limit):
     ref, alt = pair
-    count = len(find_variants("g.", ref, alt))
+    count = len(extract_variants("g.", ref, alt))
     try:
-        find_variant_string("g.", ref, alt, max_mutations=limit)
+        extract_variant_string("g.", ref, alt, max_mutations=limit)
         assert count <= limit
     except TooManyVariationsException:
         assert count > limit
@@ -244,7 +244,7 @@ def test_max_mutations_agrees_with_find_variants(pair, limit):
 def test_protein_descriptions(pair, fs_short):
     """well-formed and consistent with the translated sequences"""
     ref, alt = pair
-    description = find_variant_string("p.", ref, alt, fs_short=fs_short)
+    description = extract_variant_string("p.", ref, alt, fs_short=fs_short)
     assert_well_formed(description, "p.")
     if not fs_short:
         check_protein(ref, alt, description)
@@ -255,4 +255,4 @@ def test_protein_arbitrary_sequences(pair, offset):
     """not open reading frames, any frame: still well-formed"""
     ref, alt = pair
     assume(len(ref) >= 3)
-    assert_well_formed(find_variant_string("p.", ref, alt, offset=offset), "p.")
+    assert_well_formed(extract_variant_string("p.", ref, alt, offset=offset), "p.")

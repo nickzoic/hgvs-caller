@@ -5,8 +5,14 @@ import random
 import pytest
 from hgvs_apply import apply_nucleotide
 
-import hgvs_caller
-from hgvs_caller import TooManyVariationsException, find_variant_string, find_variants, reverse_complement, translate
+import variant_extractor
+from variant_extractor import (
+    TooManyVariationsException,
+    extract_variant_string,
+    extract_variants,
+    reverse_complement,
+    translate,
+)
 
 
 @pytest.mark.parametrize(
@@ -58,7 +64,7 @@ from hgvs_caller import TooManyVariationsException, find_variant_string, find_va
 )
 def test_nucleotide(prefix, ref, alt, options, expected):
     """nucleotide descriptions"""
-    assert find_variant_string(prefix, ref, alt, **options) == expected
+    assert extract_variant_string(prefix, ref, alt, **options) == expected
 
 
 @pytest.mark.parametrize(
@@ -107,18 +113,18 @@ def test_nucleotide(prefix, ref, alt, options, expected):
 )
 def test_protein(ref, alt, options, expected):
     """protein descriptions"""
-    assert find_variant_string("p.", ref, alt, **options) == expected
+    assert extract_variant_string("p.", ref, alt, **options) == expected
 
 
-def test_find_variants_returns_descriptions_without_prefix():
-    assert find_variants("g.", "GATTACA", "GTTTAGA") == ["2A>T", "6C>G"]
-    assert not find_variants("g.", "GATTACA", "GATTACA")
+def test_extract_variants_returns_descriptions_without_prefix():
+    assert extract_variants("g.", "GATTACA", "GTTTAGA") == ["2A>T", "6C>G"]
+    assert not extract_variants("g.", "GATTACA", "GATTACA")
 
 
 def test_max_mutations():
-    assert find_variant_string("g.", "GATTACA", "GTTTAGA", max_mutations=2) == "g.[2A>T;6C>G]"
+    assert extract_variant_string("g.", "GATTACA", "GTTTAGA", max_mutations=2) == "g.[2A>T;6C>G]"
     with pytest.raises(TooManyVariationsException):
-        find_variant_string("g.", "GATTACA", "GTTTAGA", max_mutations=1)
+        extract_variant_string("g.", "GATTACA", "GTTTAGA", max_mutations=1)
     assert issubclass(TooManyVariationsException, ValueError)
 
 
@@ -135,7 +141,7 @@ def test_max_mutations():
 )
 def test_invalid_input(args, options):
     with pytest.raises(ValueError):
-        find_variant_string(*args, **options)
+        extract_variant_string(*args, **options)
 
 
 def test_helpers():
@@ -147,10 +153,10 @@ def test_helpers():
 def test_version_matches_metadata():
     importlib_metadata = pytest.importorskip("importlib.metadata")
     try:
-        version = importlib_metadata.version("hgvs_caller")
+        version = importlib_metadata.version("variant_extractor")
     except importlib_metadata.PackageNotFoundError:
         pytest.skip("package not installed")
-    assert hgvs_caller.__version__ == version
+    assert variant_extractor.__version__ == version
 
 
 @pytest.mark.parametrize(
@@ -179,14 +185,14 @@ def test_version_matches_metadata():
 )
 def test_regressions_found_by_fuzzing(prefix, ref, alt, options, expected):
     """cases found by the Hypothesis fuzz tests (tests/test_fuzz.py)"""
-    assert find_variant_string(prefix, ref, alt, **options) == expected
+    assert extract_variant_string(prefix, ref, alt, **options) == expected
 
 
 @pytest.mark.parametrize("prefix", ["g.", "n.", "m.", "o.", "p."])
 def test_negative_offset_needs_c_or_r_coordinates(prefix):
     """found by fuzzing: g.0dup; only c. and r. coordinates go below 1"""
     with pytest.raises(ValueError):
-        find_variant_string(prefix, "ATGAAA", "ATGAAAA", offset=-1)
+        extract_variant_string(prefix, "ATGAAA", "ATGAAAA", offset=-1)
 
 
 @pytest.mark.parametrize("region,spacing", [(80, 6), (260, 6)])
@@ -199,5 +205,5 @@ def test_large_clusters_of_changes(region, spacing):
     for i in range(20, 20 + region, spacing):  # a change every few bases: one cluster
         alt[i] = "ACGT"[("ACGT".index(alt[i]) + 1) % 4]
     alt = "".join(alt)
-    description = find_variant_string("g.", ref, alt)
+    description = extract_variant_string("g.", ref, alt)
     assert apply_nucleotide(description, ref) == alt

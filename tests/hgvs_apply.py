@@ -1,12 +1,12 @@
 """Apply HGVS descriptions to a reference sequence.
 
-Written independently of hgvs_caller, so tests can check that a called description
-reproduces the variant sequence rather than comparing against the caller's own logic.
+Written independently of variant_extractor, so tests can check that an extracted description
+reproduces the variant sequence rather than comparing against the extractor's own logic.
 """
 
 import re
 
-from hgvs_caller import translate
+from variant_extractor import translate
 
 COMPLEMENT = str.maketrans("ACGT", "TGCA")
 
@@ -124,35 +124,35 @@ def apply_protein(description: str, protein: str) -> str:
     return "".join(seq)
 
 
-def check_protein(ref: str, alt: str, called: str) -> None:
+def check_protein(ref: str, alt: str, extracted: str) -> None:
     """assert that a protein description is consistent with the two coding sequences"""
     ref_p, alt_p = translate(ref), translate(alt)
     shift = len(alt) - len(ref)
-    context = (ref, alt, called, ref_p, alt_p)
-    if called == "p.=":
+    context = (ref, alt, extracted, ref_p, alt_p)
+    if extracted == "p.=":
         assert ref_p == alt_p, context
-    elif called == "p.?":  # change beyond the translated part of the given sequence
+    elif extracted == "p.?":  # change beyond the translated part of the given sequence
         assert not alt_p.endswith("*") or not ref_p.endswith("*"), context
-    elif called == "p.Met1?":
+    elif extracted == "p.Met1?":
         assert alt_p[:1] != "M", context
-    elif m := re.fullmatch(r"p\.([A-Z][a-z]{2})(\d+)([A-Z][a-z]{2})fsTer(\d+|\?)", called):
+    elif m := re.fullmatch(r"p\.([A-Z][a-z]{2})(\d+)([A-Z][a-z]{2})fsTer(\d+|\?)", extracted):
         i = int(m.group(2)) - 1
         assert shift % 3 and ref_p[:i] == alt_p[:i] and ref_p[i] == AA1[m.group(1)], context
         assert alt_p[i] == AA1[m.group(3)] != ref_p[i], context
         stop = alt_p.find("*", i)
         assert m.group(4) == ("?" if stop < 0 else str(stop - i + 1)), context
-    elif "ext" in called:  # extension, possibly with other changes before it
-        got = apply_protein(called, ref_p)
+    elif "ext" in extracted:  # extension, possibly with other changes before it
+        got = apply_protein(extracted, ref_p)
         assert got.endswith("?") and alt_p.startswith(got[:-1]), context
-        tail = re.search(r"extTer(\d+|\?)", called).group(1)  # type: ignore[union-attr]
+        tail = re.search(r"extTer(\d+|\?)", extracted).group(1)  # type: ignore[union-attr]
         stop = alt_p.find("*")
         assert tail == ("?" if stop < 0 else str(stop - len(got) + 2)), context
     else:
-        got = apply_protein(called, ref_p)
+        got = apply_protein(extracted, ref_p)
         got = got[: got.index("*") + 1] if "*" in got else got
         assert got == alt_p, context
         # nonsense: when the first changed residue is a stop, the description says so
         first = next((k for k, (x, y) in enumerate(zip(ref_p, alt_p)) if x != y), None)
         if first is not None and alt_p[first] == "*":
             three = {v: k for k, v in AA1.items()}
-            assert called == f"p.{three[ref_p[first]]}{first + 1}Ter", context
+            assert extracted == f"p.{three[ref_p[first]]}{first + 1}Ter", context

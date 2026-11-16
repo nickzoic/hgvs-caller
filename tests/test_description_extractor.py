@@ -1,14 +1,14 @@
-"""Test cases and results from the Mutalyzer description extractor.
+"""Test cases and results from Mutalyzer's description-extractor.
 
 https://github.com/mutalyzer/description-extractor (commit 155b79d), whose
 ``describe_dna(reference, sample)`` gives HGVS descriptions without a prefix.
 
-* EXAMPLES: the extractor's tests/test_describe.py.  Its tests/test_extractor.py checks the
+* EXAMPLES: description-extractor's tests/test_describe.py.  Its tests/test_extractor.py checks the
   same sequence pairs at the level of its internal alignment, and its protein tests are
   disabled (and take protein sequences), so they are not included.
 * data/description_extractor_results.json: 500 random sequence pairs (from
-  tools/compare_description_extractor.py --seed 1) for which the extractor and hgvs_caller give
-  the same description.  The tool reports where they differ: mostly where the extractor joins
+  tools/compare_description_extractor.py --seed 1) for which description-extractor and variant_extractor give
+  the same description.  The tool reports where they differ: mostly where description-extractor joins
   separate changes in one delins, which HGVS describes separately.
 """
 
@@ -18,11 +18,11 @@ import pathlib
 import pytest
 from hgvs_apply import apply_nucleotide
 
-from hgvs_caller import find_variant_string
+from variant_extractor import extract_variant_string
 
 REFERENCE = "ACGTCGATTCGCTAGCTTCGGGGGATAGATAGAGATATAGAGAT"  # used by test5 to test18
 
-# (test name in test_describe.py, reference, sample, the extractor's description)
+# (test name in test_describe.py, reference, sample, description-extractor's description)
 EXAMPLES = [
     (
         "test1",
@@ -67,13 +67,13 @@ EXAMPLES = [
 
 @pytest.mark.parametrize("name,ref,alt,expected", EXAMPLES, ids=[e[0] for e in EXAMPLES])
 def test_description_extractor_example(name, ref, alt, expected):  # pylint: disable=unused-argument
-    """same description as the description extractor"""
-    assert find_variant_string("g.", ref, alt) == "g." + expected
+    """same description as description-extractor"""
+    assert extract_variant_string("g.", ref, alt) == "g." + expected
 
 
 @pytest.mark.parametrize("name,ref,alt,expected", EXAMPLES, ids=[e[0] for e in EXAMPLES])
 def test_description_extractor_example_reproduces_sample(name, ref, alt, expected):  # pylint: disable=unused-argument
-    """sanity check of the examples: the extractor's description gives the sample"""
+    """sanity check of the examples: description-extractor's description gives the sample"""
     assert apply_nucleotide("g." + expected, ref) == alt
 
 
@@ -82,5 +82,5 @@ RESULTS = json.loads((pathlib.Path(__file__).parent / "data" / "description_extr
 
 @pytest.mark.parametrize("ref,alt,expected", RESULTS)
 def test_description_extractor_result(ref, alt, expected):
-    """same description as the description extractor gave"""
-    assert find_variant_string("g.", ref, alt) == "g." + expected
+    """same description as description-extractor gave"""
+    assert extract_variant_string("g.", ref, alt) == "g." + expected

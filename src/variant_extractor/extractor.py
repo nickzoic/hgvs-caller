@@ -1,17 +1,18 @@
-"""Call HGVS variant descriptions from a reference and a variant nucleotide sequence.
+"""Extract HGVS variant descriptions from a reference and a variant nucleotide sequence.
 
->>> find_variant_string("g.", "TGTGATTCT", "TGTGTTCT", offset=33344586)
+>>> extract_variant_string("g.", "TGTGATTCT", "TGTGTTCT", offset=33344586)
 'g.33344591del'
->>> find_variant_string("c.", "AGAAGTAGAGG", "AGAAGTAGATAGAGG", offset=14)
+>>> extract_variant_string("c.", "AGAAGTAGAGG", "AGAAGTAGATAGAGG", offset=14)
 'c.20_23dup'
->>> find_variant_string("g.", "GATTACA", "GTTTAGA")
+>>> extract_variant_string("g.", "GATTACA", "GTTTAGA")
 'g.[2A>T;6C>G]'
->>> find_variant_string("r.", "aggcucauu", "aggcgacauu", offset=770)
+>>> extract_variant_string("r.", "aggcucauu", "aggcgacauu", offset=770)
 'r.775delinsga'
->>> find_variant_string("p.", "ATGGATGCATACGAGATGAGG", "ATGGATGCATACGTGCATACGAGATGAGG")
+>>> extract_variant_string("p.", "ATGGATGCATACGAGATGAGG", "ATGGATGCATACGTGCATACGAGATGAGG")
 'p.Glu5ValfsTer5'
 
-The signature is compatible with countess_variant_caller.find_variant_string.
+Apart from its name, the signature of extract_variant_string is that of
+countess_variant_caller.find_variant_string.
 Follows HGVS Nomenclature 21.1 (https://hgvs-nomenclature.org/stable/), in particular:
 
 * the 3' rule: deletions, duplications and insertions are placed as far 3' as possible;
@@ -33,7 +34,13 @@ try:  # optional: exact edit distance in C, used only to size the alignment band
 except ImportError:  # pragma: no cover
     _edit_distance = None
 
-__all__ = ["find_variants", "find_variant_string", "TooManyVariationsException", "reverse_complement", "translate"]
+__all__ = [
+    "extract_variants",
+    "extract_variant_string",
+    "TooManyVariationsException",
+    "reverse_complement",
+    "translate",
+]
 
 # Inserted sequences at least this long are described by reference to a copy elsewhere in
 # the reference sequence when one exists (e.g. g.17_18ins5_16, p.His7_Gln8insGly4_Ser6).
@@ -677,7 +684,7 @@ def _clean(seq: str, what: str) -> str:
     return seq
 
 
-def find_variants(
+def extract_variants(
     prefix: str,
     ref_seq: str,
     var_seq: str,
@@ -717,7 +724,7 @@ def find_variants(
     return _Nucleotide(kind, ref, alt, offset, merge_one_nt, min_copy_length or MIN_COPY_LENGTH_NT).variants()
 
 
-def find_variant_string(
+def extract_variant_string(
     prefix: str,
     ref_seq: str,
     var_seq: str,
@@ -730,24 +737,24 @@ def find_variant_string(
 
     Several separate changes are returned as an allele, e.g. 'g.[2A>T;6C>G]', no change as
     'g.='.  For "p." a change whose effect lies beyond the end of the given sequence gives
-    'p.?' (effect unknown).  Keyword options are passed to find_variants.
+    'p.?' (effect unknown).  Keyword options are passed to extract_variants.
 
-    >>> find_variant_string("c.", "CATGACA", "CATATAACA", offset=2073)
+    >>> extract_variant_string("c.", "CATGACA", "CATATAACA", offset=2073)
     'c.2077delinsATA'
-    >>> find_variant_string("g.", "CATCAGCCT", "CACTGACCT", offset=32361327)
+    >>> extract_variant_string("g.", "CATCAGCCT", "CACTGACCT", offset=32361327)
     'g.32361330_32361333inv'
-    >>> find_variant_string("g.", "ATCGATCGATCGATCGAGGGTCCC", "ATCGATCGATCGATCGAATCGATCGATCGGGGTCCC")
+    >>> extract_variant_string("g.", "ATCGATCGATCGATCGAGGGTCCC", "ATCGATCGATCGATCGAATCGATCGATCGGGGTCCC")
     'g.17_18ins5_16'
-    >>> find_variant_string("c.", "CAGGGT", "CATGGT", offset=-26)
+    >>> extract_variant_string("c.", "CAGGGT", "CATGGT", offset=-26)
     'c.-23G>T'
-    >>> find_variant_string("p.", "ATGGTTGGTTCA", "ATGGTTTAGACA")
+    >>> extract_variant_string("p.", "ATGGTTGGTTCA", "ATGGTTTAGACA")
     'p.Gly3Ter'
-    >>> find_variant_string("p.", "TGC", "TGT", offset=561)
+    >>> extract_variant_string("p.", "TGC", "TGT", offset=561)
     'p.Cys188='
-    >>> find_variant_string("g.", "GATTACA", "GATTACA")
+    >>> extract_variant_string("g.", "GATTACA", "GATTACA")
     'g.='
     """
-    variants = find_variants(prefix, ref_seq, var_seq, offset, minus_strand, **options)
+    variants = extract_variants(prefix, ref_seq, var_seq, offset, minus_strand, **options)
     if not variants:
         return prefix + "="
     if max_mutations is not None and len(variants) > max_mutations:

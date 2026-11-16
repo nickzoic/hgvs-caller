@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Compare hgvs_caller with the Mutalyzer description extractor on random sequence pairs.
+"""Compare variant_extractor with Mutalyzer's description-extractor on random sequence pairs.
 
 https://github.com/mutalyzer/description-extractor (C++ with a SWIG wrapper; it builds with
 Python 3.10, SWIG from PyPI, biopython and crossmapper-legacy, see the README of this
-repository's tests).  Run with the extractor importable:
+repository's tests).  Run with description-extractor importable:
 
     PYTHONPATH=src:tests:path/to/description-extractor python tools/compare_description_extractor.py
 
@@ -20,7 +20,7 @@ import re
 from extractor import describe_dna  # pylint: disable=import-error
 from hgvs_apply import apply_nucleotide, revcomp
 
-from hgvs_caller import find_variant_string
+from variant_extractor import extract_variant_string
 
 
 def mutate(rng: random.Random, seq: str) -> str:
@@ -42,7 +42,7 @@ def mutate(rng: random.Random, seq: str) -> str:
 
 
 def split_allele(description: str) -> list[str]:
-    """top-level changes of an extractor description (composite insertions contain ';')"""
+    """top-level changes of a description-extractor description (composite insertions contain ';')"""
     if description == "=":
         return []
     if not (description.startswith("[") and description.endswith("]")):
@@ -59,7 +59,7 @@ def split_allele(description: str) -> list[str]:
 
 
 def apply_extractor(description: str, ref: str) -> str:
-    """apply an extractor description, including composite insertions (ins[2_13;GGTC]) and
+    """apply a description-extractor description, including composite insertions (ins[2_13;GGTC]) and
     insertions at position 0 or after the end, which hgvs_apply does not accept"""
 
     def inserted(arg: str) -> str:
@@ -97,7 +97,7 @@ def apply_extractor(description: str, ref: str) -> str:
 
 
 def extractor_problem(description: str, ref: str, alt: str) -> str:
-    """why an extractor description is not a correct HGVS description, or ''"""
+    """why a description-extractor description is not a correct HGVS description, or ''"""
     try:
         if apply_extractor(description, ref) != alt:
             return "does not give the variant sequence"
@@ -125,7 +125,7 @@ def compare(cases: int, seed: int):
         ref = "".join(rng.choices("ACGT" if n % 3 else "AT", k=rng.randint(5, 60)))
         alt = mutate(rng, ref)
         theirs = str(describe_dna(ref, alt))
-        ours = find_variant_string("g.", ref, alt)[2:]
+        ours = extract_variant_string("g.", ref, alt)[2:]
         assert apply_nucleotide("g." + ours, ref) == alt, (ref, alt, ours)
         if theirs == ours:
             summary["same description"] += 1
@@ -133,9 +133,9 @@ def compare(cases: int, seed: int):
             continue
         problem = extractor_problem(theirs, ref, alt)
         if problem:
-            key = f"different: extractor's description is wrong: {problem}"
+            key = f"different: description-extractor's description is wrong: {problem}"
         elif len(split_allele(theirs)) < len(split_allele(ours)) and "delins" in theirs:
-            key = "different: extractor joins separate changes in a delins (HGVS: describe them separately)"
+            key = "different: description-extractor joins separate changes in a delins (HGVS: describe them separately)"
         else:
             key = "different: both correct, different alignment"
         summary[key] += 1
@@ -155,7 +155,9 @@ def main():
     for key, count in sorted(summary.items(), key=lambda item: -item[1]):
         print(f"{count:7d} {100 * count / args.cases:5.1f}%  {key}")
         for ref, alt, theirs, ours in examples.get(key, []):
-            print(f"            {ref} > {alt}\n              extractor {theirs}\n              hgvs_caller {ours}")
+            print(f"            {ref} > {alt}")
+            print(f"              description-extractor {theirs}")
+            print(f"              variant_extractor     {ours}")
     if args.save:
         with open(args.save, "w", encoding="utf-8") as out:  # one pair per line
             out.write("[\n" + ",\n".join(json.dumps(case) for case in agreed[: args.save_limit]) + "\n]\n")
