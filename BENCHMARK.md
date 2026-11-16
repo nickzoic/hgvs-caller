@@ -65,10 +65,11 @@ PYTHONPATH=src:tests:tools python tools/benchmark.py report results/*.json
   1.99): they minimize the length of the description, joining changes separated by unchanged
   bases into one delins, which HGVS describes separately (see "Comparison with Mutalyzer's
   description-extractor" in the README).
-* **Speed.** countess-variant-caller is the fastest (5-12 µs per read) and Mutalyzer 2 next
-  (22-89 µs), both with the alignment in compiled code. variant_extractor takes 24 µs for a 300 bp
-  read with one change and 334 µs with three; on 10 kb sequences its pure-Python alignment is the
-  slowest with mutalyzer-algebra (24 ms and 19 ms against under 2 ms for the others).
+* **Speed.** countess-variant-caller is the fastest (5-12 µs per read), with its alignment in
+  compiled code. variant_extractor, in Python, takes 14 µs for a 300 bp read with one change
+  (Mutalyzer 2: 22 µs), 131 µs with three (Mutalyzer 2: 89 µs, Mutalyzer 3: 267 µs) and 0.7 ms
+  for 10 kb with five changes (Mutalyzer 2: 0.75 ms, Mutalyzer 3: 0.93 ms, mutalyzer-algebra:
+  19 ms), as it skips the unchanged stretches between changes.
 
 ## Results
 
@@ -85,8 +86,8 @@ PYTHONPATH=src:tests:tools python tools/benchmark.py report results/*.json
 
 | tool | correct and valid HGVS | correct, invalid positions | wrong or error | as expected | changes per case | characters per case | time per case |
 |---|---|---|---|---|---|---|---|
-| variant_extractor | 25 | 0 | 0 | 24 | 1.04 | 7.4 | 21 µs |
-| variant_extractor (pure Python) | 25 | 0 | 0 | 24 | 1.04 | 7.4 | 21 µs |
+| variant_extractor | 25 | 0 | 0 | 24 | 1.04 | 7.4 | 30 µs |
+| variant_extractor (pure Python) | 25 | 0 | 0 | 24 | 1.04 | 7.4 | 29 µs |
 | countess-variant-caller | 25 | 0 | 0 | 13 | 1.60 | 9.9 | 8 µs |
 | Mutalyzer 2 description-extractor | 25 | 0 | 0 | 19 | 1.16 | 7.6 | 88 µs |
 | Mutalyzer 3 description_extractor | 25 | 0 | 0 | 19 | 1.16 | 7.6 | 77 µs |
@@ -96,8 +97,8 @@ PYTHONPATH=src:tests:tools python tools/benchmark.py report results/*.json
 
 | tool | correct and valid HGVS | correct, invalid positions | wrong or error | as expected | changes per case | characters per case | time per case |
 |---|---|---|---|---|---|---|---|
-| variant_extractor | 18 | 0 | 0 | 18 | 1.39 | 9.9 | 130 µs |
-| variant_extractor (pure Python) | 18 | 0 | 0 | 18 | 1.39 | 9.9 | 180 µs |
+| variant_extractor | 18 | 0 | 0 | 18 | 1.39 | 9.9 | 60 µs |
+| variant_extractor (pure Python) | 18 | 0 | 0 | 18 | 1.39 | 9.9 | 71 µs |
 | countess-variant-caller | 18 | 0 | 0 | 12 | 1.61 | 12.4 | 6 µs |
 | Mutalyzer 2 description-extractor | 18 | 0 | 0 | 18 | 1.39 | 9.9 | 56 µs |
 | Mutalyzer 3 description_extractor | 18 | 0 | 0 | 17 | 1.39 | 9.8 | 90 µs |
@@ -107,8 +108,8 @@ PYTHONPATH=src:tests:tools python tools/benchmark.py report results/*.json
 
 | tool | correct and valid HGVS | correct, invalid positions | wrong or error | changes per case | characters per case | time per case |
 |---|---|---|---|---|---|---|
-| variant_extractor | 5000 | 0 | 0 | 1.99 | 18.0 | 262 µs |
-| variant_extractor (pure Python) | 5000 | 0 | 0 | 1.99 | 18.0 | 446 µs |
+| variant_extractor | 5000 | 0 | 0 | 1.99 | 18.0 | 164 µs |
+| variant_extractor (pure Python) | 5000 | 0 | 0 | 1.99 | 18.0 | 206 µs |
 | countess-variant-caller | 4636 | 217 | 147 | 2.58 | 21.5 | 7 µs |
 | Mutalyzer 2 description-extractor | 4796 | 163 | 41 | 1.70 | 16.5 | 38 µs |
 | Mutalyzer 3 description_extractor | 4836 | 164 | 0 | 1.70 | 16.5 | 125 µs |
@@ -120,8 +121,8 @@ Invalid positions and exceptions: countess-variant-caller: 15 overlapping change
 
 | tool | correct and valid HGVS | correct, invalid positions | wrong or error | changes per case | characters per case | time per case |
 |---|---|---|---|---|---|---|
-| variant_extractor | 1000 | 0 | 0 | 1.00 | 7.2 | 24 µs |
-| variant_extractor (pure Python) | 1000 | 0 | 0 | 1.00 | 7.2 | 25 µs |
+| variant_extractor | 1000 | 0 | 0 | 1.00 | 7.2 | 14 µs |
+| variant_extractor (pure Python) | 1000 | 0 | 0 | 1.00 | 7.2 | 19 µs |
 | countess-variant-caller | 1000 | 0 | 0 | 1.00 | 7.2 | 5 µs |
 | Mutalyzer 2 description-extractor | 1000 | 0 | 0 | 1.00 | 7.2 | 22 µs |
 | Mutalyzer 3 description_extractor | 1000 | 0 | 0 | 1.00 | 7.2 | 70 µs |
@@ -131,8 +132,8 @@ Invalid positions and exceptions: countess-variant-caller: 15 overlapping change
 
 | tool | correct and valid HGVS | correct, invalid positions | wrong or error | changes per case | characters per case | time per case |
 |---|---|---|---|---|---|---|
-| variant_extractor | 1000 | 0 | 0 | 2.98 | 25.0 | 334 µs |
-| variant_extractor (pure Python) | 1000 | 0 | 0 | 2.98 | 25.0 | 685 µs |
+| variant_extractor | 1000 | 0 | 0 | 2.98 | 25.0 | 131 µs |
+| variant_extractor (pure Python) | 1000 | 0 | 0 | 2.98 | 25.0 | 201 µs |
 | countess-variant-caller | 989 | 0 | 11 | 3.12 | 25.9 | 12 µs |
 | Mutalyzer 2 description-extractor | 1000 | 0 | 0 | 2.96 | 24.9 | 89 µs |
 | Mutalyzer 3 description_extractor | 1000 | 0 | 0 | 2.96 | 24.9 | 267 µs |
@@ -142,8 +143,8 @@ Invalid positions and exceptions: countess-variant-caller: 15 overlapping change
 
 | tool | correct and valid HGVS | correct, invalid positions | wrong or error | changes per case | characters per case | time per case |
 |---|---|---|---|---|---|---|
-| variant_extractor | 20 | 0 | 0 | 5.00 | 48.6 | 24 ms |
-| variant_extractor (pure Python) | 20 | 0 | 0 | 5.00 | 48.6 | 59 ms |
+| variant_extractor | 20 | 0 | 0 | 5.00 | 48.6 | 696 µs |
+| variant_extractor (pure Python) | 20 | 0 | 0 | 5.00 | 48.6 | 953 µs |
 | countess-variant-caller | 20 | 0 | 0 | 5.20 | 50.9 | 1,960 µs |
 | Mutalyzer 2 description-extractor | 20 | 0 | 0 | 5.00 | 48.6 | 752 µs |
 | Mutalyzer 3 description_extractor | 20 | 0 | 0 | 5.00 | 48.4 | 929 µs |

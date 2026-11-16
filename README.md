@@ -155,7 +155,9 @@ The common prefix and then the common suffix of the two sequences are removed, w
 own puts a single change at its most 3' position. The remaining middle is aligned with the
 fewest edits, preferring substitutions on ties so that adjacent changes stay together, in a
 band around the diagonal that is widened until the result is provably the same as a full
-alignment.
+alignment. Unchanged stretches between changes are skipped: once the band's values settle
+along a matching diagonal, every following row is the same while the match lasts, so those
+rows are not computed (the alignment is the same as computing them).
 
 Clusters of nearby changes (up to 8 bases apart) are then aligned again with an affine gap
 cost, where starting a change costs one more than continuing it: edits plus changes, then
@@ -170,10 +172,10 @@ Typical cost per read on a 300 bp amplicon:
 
 | changes in the read     | `g.`, with rapidfuzz | `g.`, pure Python | `p.`     |
 |-------------------------|----------------------|-------------------|----------|
-| one                     | 18 µs                | 17 µs             | 9-11 µs  |
-| three, far apart        | 250 µs               | 480 µs            | 17-18 µs |
+| one                     | 14 µs                | 19 µs             | 9-11 µs  |
+| three, far apart        | 131 µs               | 201 µs            | 17-18 µs |
 
-A 10 kb sequence with five changes far apart takes about 24 ms with rapidfuzz, 59 ms without.
+A 10 kb sequence with five changes far apart takes about 0.7 ms with rapidfuzz, 1 ms without.
 
 ## Tests
 
@@ -239,15 +241,15 @@ description-extractor, Mutalyzer 3's description extractor and mutalyzer-algebra
 
 | tool | correct, valid HGVS | correct, positions outside the reference | wrong | time per pair |
 |---|---|---|---|---|
-| variant_extractor | 100% | 0% | 0% | 262 µs |
+| variant_extractor | 100% | 0% | 0% | 164 µs |
 | countess-variant-caller | 92.7% | 4.3% | 2.9% | 7 µs |
 | Mutalyzer 2 description-extractor | 95.9% | 3.3% | 0.8% | 38 µs |
 | Mutalyzer 3 description_extractor | 96.7% | 3.3% | 0% | 125 µs |
 | mutalyzer-algebra | 95.7% | 4.3% | 0% | 112 µs |
 
 variant_extractor also gave the HGVS specification's description for the most of its examples
-(24 of 25, against 19 for Mutalyzer). The tools with compiled alignment are faster: up to 32
-times on 10 kb sequences.
+(24 of 25, against 19 for Mutalyzer). countess-variant-caller is the fastest; variant_extractor
+is about as fast as Mutalyzer 2's C++ (faster for one change, and on 10 kb sequences).
 
 ## Origin
 
