@@ -126,6 +126,14 @@ descriptions without the prefix. Invalid sequences or prefixes raise `ValueError
 - An insertion that copies the sequence directly 5' of it is a **duplication**.
 - Changes of two or more consecutive residues are one **deletion-insertion**; a delins whose
   inserted sequence is the reverse complement of the deleted sequence is an **inversion**.
+- An **inversion** inside a changed region is found too, and stays a separate change even
+  next to another one, as in the spec's `g.[776788_93191545inv;93191546T>C]`:
+
+  ```python
+  >>> find_variant_string("g.", "AAGAAGATGGCTCCTG", "AAGAAGCCATGTCCTG")
+  'g.[7_10inv;11C>G]'
+
+  ```
 - Changes separated by one or more residues are described **individually**, as an allele,
   except as set by `merge_one_nt`.
 - Insertions before the first or after the last base of the reference have only one flanking
@@ -144,19 +152,21 @@ uncertain positions, and descriptions on more than one reference sequence.
 ### Method
 
 The common prefix and then the common suffix of the two sequences are removed, which on its
-own puts a single change at its most 3' position. The remaining middle is aligned
-(Levenshtein, preferring substitutions on ties so that adjacent changes stay together) in a
-band around the diagonal; the band is widened until the result is provably the same as a full
-alignment. The changed blocks are then merged per the rules above, shifted 3', and classified.
-If `rapidfuzz` is installed it is used to compute the edit distance that sizes the band; the
-results are the same with or without it.
+own puts a single change at its most 3' position. The remaining middle is aligned with the
+fewest edits and, among those, the fewest separate changes (so a deletion is not split around
+a matching base), preferring substitutions on remaining ties so that adjacent changes stay
+together. The alignment is computed in a band around the diagonal, widened until the result
+is provably the same as a full alignment. Clusters of nearby changes are searched for an
+inversion that describes them more briefly. The changes are then merged per the rules above,
+shifted 3', and classified. If `rapidfuzz` is installed it is used to compute the edit
+distance that sizes the band; the results are the same with or without it.
 
 Typical cost per read on a 300 bp amplicon:
 
 | changes in the read     | `g.`, with rapidfuzz | `g.`, pure Python | `p.`     |
 |-------------------------|----------------------|-------------------|----------|
-| one                     | 20 µs                | 17 µs             | 9 µs     |
-| three, far apart        | 225 µs               | 450 µs            | 12-20 µs |
+| one                     | 18 µs                | 18 µs             | 9-12 µs  |
+| three, far apart        | 430 µs               | 870 µs            | 14-21 µs |
 
 ## Tests
 
@@ -186,11 +196,30 @@ coverage; a longer fuzz run; linting; and a test of the built package. They incl
   and reproduces the variant; unrelated sequence pairs as well as similar ones; and case, T/U,
   strand and offset changes only change the result as they should. Cases they found are kept
   as regression tests in `tests/test_api.py`.
+- `tests/test_description_extractor.py`: the test cases of the Mutalyzer
+  [description extractor](https://github.com/mutalyzer/description-extractor), and 500 of its
+  results on random sequence pairs (see below); all give the same description.
 - the doctests in the package and in this README.
 
 Two examples from the specification are not included: the exon/intron junction examples
 (their sequences are not contiguous), and `c.-23A>T` from the protein Extension Q&A, whose
 sequence shows a `G>T` change (`CAGGGT` to `CATGGT`), i.e. `c.-23G>T`.
+
+### Comparison with the Mutalyzer description extractor
+
+`tools/compare_description_extractor.py` runs both on random sequence pairs (it needs the
+extractor built: Python 3.10, SWIG from PyPI, biopython and
+`git+https://github.com/mutalyzer/crossmapper-legacy.git`). On 20,000 pairs:
+
+| share | |
+|-------|-|
+| 73.4% | the same description |
+| 18.0% | the extractor joins separate changes in one delins (`32_41delinsTCCCAT` for `[32_33del;36_38del;43dup]`); HGVS describes changes separated by one or more nucleotides individually |
+| 7.5%  | both correct, different alignment: the extractor minimizes the length of the description, which prefers fewer, larger changes (`[5_14del;18_19insACC]`); hgvs_caller minimizes the number of edited bases |
+| 0.8%  | the extractor's description does not give the variant sequence (e.g. an inversion one base out) |
+| 0.3%  | the extractor uses a position outside the reference (`0_1insAATAC`) |
+
+Every description from hgvs_caller gave the variant sequence.
 
 ## Origin
 
