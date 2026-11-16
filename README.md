@@ -173,6 +173,8 @@ Typical cost per read on a 300 bp amplicon:
 | one                     | 18 µs                | 17 µs             | 9-11 µs  |
 | three, far apart        | 250 µs               | 480 µs            | 17-18 µs |
 
+A 10 kb sequence with five changes far apart takes about 24 ms with rapidfuzz, 59 ms without.
+
 ## Tests
 
 ```sh
@@ -228,6 +230,24 @@ Every description from variant_extractor gave the variant sequence. Where both a
 description-extractor does not join separate changes, scored by variant_extractor's measure (edits plus changes,
 then edits): variant_extractor's description costs less for 1574 pairs, the same for 235, and more
 for 13, all with several inversions close together.
+
+## Benchmark
+
+[BENCHMARK.md](BENCHMARK.md) compares variant_extractor with countess-variant-caller, Mutalyzer 2's
+description-extractor, Mutalyzer 3's description extractor and mutalyzer-algebra on 7063 cases
+(`tools/benchmark.py`). In brief, on 5000 random short sequence pairs:
+
+| tool | correct, valid HGVS | correct, positions outside the reference | wrong | time per pair |
+|---|---|---|---|---|
+| variant_extractor | 100% | 0% | 0% | 262 µs |
+| countess-variant-caller | 92.7% | 4.3% | 2.9% | 7 µs |
+| Mutalyzer 2 description-extractor | 95.9% | 3.3% | 0.8% | 38 µs |
+| Mutalyzer 3 description_extractor | 96.7% | 3.3% | 0% | 125 µs |
+| mutalyzer-algebra | 95.7% | 4.3% | 0% | 112 µs |
+
+variant_extractor also gave the HGVS specification's description for the most of its examples
+(24 of 25, against 19 for Mutalyzer). The tools with compiled alignment are faster: up to 32
+times on 10 kb sequences.
 
 ## Origin
 
