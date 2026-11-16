@@ -227,9 +227,33 @@ def test_long_sequence_with_scattered_changes():
 def test_too_different_to_align(aligner, monkeypatch):
     """when the alignment band would be too large, the region is one change"""
     # pylint: disable=protected-access
-    monkeypatch.setattr(variant_extractor.extractor, "_edit_distance", lambda ref, alt: 10_000)
+    monkeypatch.setattr(variant_extractor.extractor, "_edit_distance", lambda ref, alt, score_cutoff: score_cutoff + 1)
     rng = random.Random(11)
     ref, alt = "".join(rng.choices("ACGT", k=1000)), "".join(rng.choices("ACGT", k=1000))
     with pytest.raises(variant_extractor.extractor._RegionTooDifferent):
         getattr(variant_extractor.extractor, aligner)(ref, alt)
     assert extract_variant_string("g.", ref, alt).startswith("g.1_1000delins")
+
+
+def test_many_changes(monkeypatch):
+    """an edit distance above the first cutoff for the band width (64) is found in a second
+    step; one below it in the first"""
+    calls, answer = [], {"distance": 100}
+
+    def distance(_ref, _alt, score_cutoff):  # as rapidfuzz's, for any environment
+        calls.append(score_cutoff)
+        return min(answer["distance"], score_cutoff + 1)
+
+    monkeypatch.setattr(variant_extractor.extractor, "_edit_distance", distance)
+    rng = random.Random(12)
+    ref = "".join(rng.choices("ACGT", k=500))
+    alt = list(ref)
+    for i in range(0, 500, 5):  # about 100 substitutions
+        alt[i] = "ACGT"[("ACGT".index(alt[i]) + 1) % 4]
+    alt = "".join(alt)
+    assert apply_nucleotide(extract_variant_string("g.", ref, alt), ref) == alt
+    assert calls[0] == 64 and calls[1] > 64
+    calls.clear()
+    answer["distance"] = 1
+    assert extract_variant_string("g.", "GATTACA", "GATGACA") == "g.4T>G"
+    assert calls == [64]

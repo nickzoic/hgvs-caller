@@ -28,8 +28,10 @@ descriptions of uncertain positions.
 
 from typing import Callable, Optional
 
-_edit_distance: Optional[Callable[[str, str], int]]
-try:  # optional: exact edit distance in C, used only to size the alignment band
+# optional: edit distance in C, used only to size the alignment band; with score_cutoff it
+# returns cutoff + 1 for a larger distance, and is faster for a small cutoff
+_edit_distance: Optional[Callable[..., int]]
+try:
     from rapidfuzz.distance.Levenshtein import distance as _edit_distance
 except ImportError:  # pragma: no cover
     _edit_distance = None
@@ -56,6 +58,9 @@ MIN_INVERSION_LENGTH = 2
 # If aligning the changed region needs a band of more cells than this (the sequences are
 # too different), it is described as one change instead.
 MAX_ALIGNMENT_CELLS = 4_000_000
+
+# The alignment band starts this wide without rapidfuzz, and is doubled until wide enough.
+INITIAL_BAND_WIDTH = 4
 
 
 class _RegionTooDifferent(Exception):
@@ -103,7 +108,34 @@ def translate(dna: str, to_stop: bool = True) -> str:
 # --------------------------------------------------------------------------- alignment
 
 
-def _align_edits(ref: str, alt: str) -> list[str]:
+def _initial_width(ref: str, alt: str) -> int:
+    """The width to start the alignment band with: the edit distance where rapidfuzz is
+    installed, first with a small cutoff (fast), then if that is passed, with the widest band
+    within MAX_ALIGNMENT_CELLS (so that sequences too different are found at once)."""
+    if _edit_distance is None:
+        return INITIAL_BAND_WIDTH
+    n, m = len(ref), len(alt)
+    widest = max(1, (MAX_ALIGNMENT_CELLS // (n + 1) - abs(m - n) - 1) // 2)
+    distance = _edit_distance(ref, alt, score_cutoff=min(64, widest))
+    if distance > 64 and widest > 64:
+        distance = _edit_distance(ref, alt, score_cutoff=widest)
+    return max(1, distance)
+
+
+def _run_length(x: str, i: int, y: str, j: int, limit: int) -> int:
+    """length of the longest common prefix of x[i:] and y[j:], at most limit: a binary search
+    comparing slices"""
+    low, high = 0, limit
+    while low < high:
+        mid = (low + high + 1) // 2
+        if x[i : i + mid] == y[j : j + mid]:
+            low = mid
+        else:
+            high = mid - 1
+    return low
+
+
+def _align_edits(ref: str, alt: str) -> list[str]:  # pylint: disable=too-many-statements
     """Levenshtein alignment as a list of operations in reverse order: "=" match,
     "X" substitution, "D" deletion from ref, "I" insertion from alt: the fewest edits.
     On ties a match/substitution is preferred, so changed residues stay together rather
@@ -113,21 +145,32 @@ def _align_edits(ref: str, alt: str) -> list[str]:
     Only a band of diagonals is computed: those between 0 and len(alt) - len(ref), widened
     by `width` on each side.  A path leaving the band needs more than 2 * width insertions
     and deletions, so when the distance found is at most `width` the result is the same as
-    the full alignment; otherwise the band is doubled and the alignment repeated."""
+    the full alignment; otherwise the band is doubled and the alignment repeated.
+
+    Unchanged stretches are skipped: when a row of the band is c + |k - d| (c on diagonal
+    d, rising by one per diagonal away from it) and ref and alt match along diagonal d, the
+    rows that follow are the same row, as long as the match continues (each cell is reached
+    most cheaply from its neighbour towards d).  Such rows are not computed but jumped
+    over to the end of the match; their values are kept as (c, d) and used in the
+    traceback, which gives the same alignment as computing every row."""
     n, m = len(ref), len(alt)
     inf = n + m + 1
-    width = max(1, _edit_distance(ref, alt)) if _edit_distance is not None else 2
+    width = _initial_width(ref, alt)
     while True:
         low = min(0, m - n) - width  # column j of row i is stored at index j - i - low
         cols = max(0, m - n) + width - low + 1
         if (n + 1) * cols > MAX_ALIGNMENT_CELLS:
             raise _RegionTooDifferent
-        dist = [[inf] * cols for _ in range(n + 1)]
-        row = dist[0]
+        # dist[i]: a list of the band's values, or for a skipped row (c, d, first row of the run)
+        dist: list = [None] * (n + 1)
+        row = dist[0] = [inf] * cols
         for j in range(0, min(m, cols + low - 1) + 1):
             row[j - low] = j
-        for i in range(1, n + 1):
-            prev, row, r_char = dist[i - 1], dist[i], ref[i - 1]
+        last_row_interior = m - low - cols + 1  # rows up to here have all band cells inside alt
+        i, next_check = 1, cols
+        while i <= n:
+            prev, row, r_char = dist[i - 1], [inf] * cols, ref[i - 1]
+            dist[i] = row
             for k in range(max(0, i + low) - i - low, min(m, i + low + cols - 1) - i - low + 1):
                 j = i + low + k
                 if j == 0:
@@ -139,17 +182,35 @@ def _align_edits(ref: str, alt: str) -> list[str]:
                 if k and row[k - 1] + 1 < best:  # from the left: (i, j-1)
                     best = row[k - 1] + 1
                 row[k] = best
+            if i >= next_check and 1 - low <= i < last_row_interior:
+                next_check = i + cols
+                c = min(row)
+                d = row.index(c)
+                canonical = [c + abs(k - d) for k in range(cols)]
+                if row == canonical:
+                    end = i + _run_length(ref, i, alt, i + low + d, min(n, last_row_interior) - i)
+                    if end > i:  # rows i + 1 to end are the same as row i
+                        dist[i + 1 : end] = [(c, d, i + 1)] * (end - i - 1)
+                        dist[end] = canonical
+                        i = end
+            i += 1
         if dist[n][m - n - low] <= width or width >= n + m:
             break
         width *= 2
 
     def get(i: int, j: int) -> int:
-        k = j - i - low
-        return dist[i][k] if 0 <= k < cols else inf
+        k, row = j - i - low, dist[i]
+        return inf if not 0 <= k < cols else row[k] if isinstance(row, list) else row[0] + abs(k - row[1])
 
     ops = []
     i, j = n, m
     while i or j:
+        row = dist[i]
+        if isinstance(row, tuple) and j - i - low == row[1]:  # on the matching diagonal of a skipped run
+            steps = i - row[2] + 1
+            ops += "=" * steps
+            i, j = i - steps, j - steps
+            continue
         here = get(i, j)
         if i and j and here == get(i - 1, j - 1) + (ref[i - 1] != alt[j - 1]):
             ops.append("=" if ref[i - 1] == alt[j - 1] else "X")
@@ -184,7 +245,7 @@ def _align(ref: str, alt: str) -> list[str]:  # pylint: disable=too-many-stateme
     k = n + m + 2  # more than any number of edits
     extend, start = k + 1, 2 * k + 1  # the cost of an edit continuing or starting a change
     inf = 3 * (n + m + 1) * k
-    width = max(1, _edit_distance(ref, alt)) if _edit_distance is not None else 2
+    width = _initial_width(ref, alt)
     while True:
         low = min(0, m - n) - width  # column j of row i is stored at index j - i - low
         cols = max(0, m - n) + width - low + 1
@@ -249,20 +310,28 @@ def _align(ref: str, alt: str) -> list[str]:  # pylint: disable=too-many-stateme
     return ops
 
 
+def _common_length(x: str, y: str, limit: int, from_end: bool) -> int:
+    """length of the longest common prefix (or suffix) of x and y, at most limit: a binary
+    search comparing slices, which is much faster than comparing character by character"""
+    low, high = 0, limit  # the length is in [low, high]
+    while low < high:
+        mid = (low + high + 1) // 2
+        if (x[len(x) - mid :] == y[len(y) - mid :]) if from_end else (x[:mid] == y[:mid]):
+            low = mid
+        else:
+            high = mid - 1
+    return low
+
+
 def _blocks(ref: str, alt: str, inversions: bool, align=_align_edits) -> list[list[int]]:
     """Changed regions between ref and alt as [ref_start, ref_end, alt_start, alt_end]
     (python-style half-open ranges), in order.
 
     The common prefix is removed first, then the common suffix, which on its own places
     a single change at its most 3' position.  Only the remaining middle is aligned."""
-    prefix = 0
     limit = min(len(ref), len(alt))
-    while prefix < limit and ref[prefix] == alt[prefix]:
-        prefix += 1
-    suffix = 0
-    limit -= prefix
-    while suffix < limit and ref[-1 - suffix] == alt[-1 - suffix]:
-        suffix += 1
+    prefix = _common_length(ref, alt, limit, from_end=False)
+    suffix = _common_length(ref, alt, limit - prefix, from_end=True)
     r_mid = ref[prefix : len(ref) - suffix]
     a_mid = alt[prefix : len(alt) - suffix]
     single = [[prefix, prefix + len(r_mid), prefix, prefix + len(a_mid)]]
