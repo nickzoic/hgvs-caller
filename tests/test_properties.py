@@ -16,10 +16,10 @@ import random
 import re
 
 import pytest
-from hgvs_apply import AA1, apply_nucleotide, apply_protein, revcomp
+from hgvs_apply import apply_nucleotide, check_protein, revcomp
 
 import hgvs_caller.caller as caller_module
-from hgvs_caller import find_variant_string, translate
+from hgvs_caller import find_variant_string
 
 CASES = int(os.environ.get("HGVS_CALLER_PROPERTY_CASES", "3000"))
 SENSE_CODONS = [codon for codon, aa in caller_module.CODON_TABLE.items() if aa != "*"]
@@ -106,38 +106,6 @@ def protein_cases(seed: int):
             for _ in range(rng.randint(1, 3)):
                 s[rng.randrange(3, len(s))] = rng.choice("ACGT")
         yield ref, "".join(s)
-
-
-def check_protein(ref: str, alt: str, called: str) -> None:
-    """assert that a protein description is consistent with the two coding sequences"""
-    ref_p, alt_p = translate(ref), translate(alt)
-    shift = len(alt) - len(ref)
-    context = (ref, alt, called, ref_p, alt_p)
-    if called == "p.=":
-        assert ref_p == alt_p, context
-    elif called == "p.?":  # change beyond the translated part of the given sequence
-        assert not alt_p.endswith("*") or not ref_p.endswith("*"), context
-    elif called == "p.Met1?":
-        assert alt_p[:1] != "M", context
-    elif m := re.fullmatch(r"p\.([A-Z][a-z]{2})(\d+)([A-Z][a-z]{2})fsTer(\d+|\?)", called):
-        i = int(m.group(2)) - 1
-        assert shift % 3 and ref_p[:i] == alt_p[:i] and ref_p[i] == AA1[m.group(1)], context
-        assert alt_p[i] == AA1[m.group(3)] != ref_p[i], context
-        stop = alt_p.find("*", i)
-        assert m.group(4) == ("?" if stop < 0 else str(stop - i + 1)), context
-    elif "ext" in called:  # extension, possibly with other changes before it
-        got = apply_protein(called, ref_p)
-        assert got.endswith("?") and alt_p.startswith(got[:-1]), context
-        tail = re.search(r"extTer(\d+|\?)", called).group(1)  # type: ignore[union-attr]
-        stop = alt_p.find("*")
-        assert tail == ("?" if stop < 0 else str(stop - len(got) + 2)), context
-    else:
-        got = apply_protein(called, ref_p)
-        got = got[: got.index("*") + 1] if "*" in got else got
-        assert got == alt_p, context
-        new_stop = alt_p.endswith("*") and 3 * (len(alt_p) - 1) != 3 * (len(ref_p) - 1) + shift
-        if new_stop and alt_p != ref_p:
-            assert "Ter" in called, context
 
 
 @pytest.mark.parametrize("seed", [4, 5])

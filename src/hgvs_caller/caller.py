@@ -218,8 +218,11 @@ def _normalize(ref: str, alt: str, blocks: list[list[int]]) -> list[list[int]]:
             block[:] = [r_start - 1, r_start, a_start - 1, a_end]
         else:
             continue
-        for other in (k - 1, k + 1):
-            if 0 <= other < len(blocks) and (blocks[other][1] == block[0] or blocks[other][0] == block[1]):
+        # merge with the nearest remaining change on either side if they now touch
+        before = next((j for j in range(k - 1, -1, -1) if blocks[j]), None)
+        after = next((j for j in range(k + 1, len(blocks)) if blocks[j]), None)
+        for other in (before, after):
+            if other is not None and (blocks[other][1] == block[0] or blocks[other][0] == block[1]):
                 first, second = sorted((block, blocks[other]))
                 block[:] = [first[0], second[1], first[2], second[3]]
                 blocks[other] = []
@@ -256,7 +259,7 @@ class _Nucleotide:
 
     def inserted(self, seq: str) -> str:
         """an inserted sequence, by reference to a copy in ref if long enough"""
-        if len(seq) >= self.min_copy:
+        if len(seq) >= max(2, self.min_copy):  # a copy is a range of at least two
             idx = self.ref.rfind(seq)
             if idx >= 0:
                 return self.span(idx, idx + len(seq))
@@ -335,7 +338,7 @@ class _Protein:  # pylint: disable=too-many-instance-attributes
 
     def inserted(self, seq: str) -> str:
         """inserted residues, by reference to a copy in ref if long enough"""
-        if len(seq) >= self.min_copy and "*" not in seq:
+        if len(seq) >= max(2, self.min_copy) and "*" not in seq:  # a copy is a range of at least two
             idx = self.ref.rfind(seq)
             if idx >= 0:
                 return self.span(idx, idx + len(seq))
@@ -362,10 +365,10 @@ class _Protein:  # pylint: disable=too-many-instance-attributes
         tail = f"Ter{new_stop - i}" if new_stop >= 0 else "Ter?"
         return f"{self.res(i)}{AA3[self.alt[i]]}ext{tail}"
 
-    def describe(self, block: list[int], prev_end: int = 0) -> tuple[str, bool]:
-        """description of one in-frame change, and whether translation stops there"""
+    def describe(self, block: list[int], alt: str, prev_end: int = 0) -> tuple[str, bool]:
+        """description of one in-frame change to alt, and whether translation stops there"""
         r_start, r_end, a_start, a_end = block
-        ref, deleted, inserted = self.ref, self.ref[r_start:r_end], self.alt[a_start:a_end]
+        ref, deleted, inserted = self.ref, self.ref[r_start:r_end], alt[a_start:a_end]
         if deleted == "*" and r_start == len(ref) - 1 and inserted:  # stop codon changed: extension
             tail = f"Ter{inserted.index('*')}" if "*" in inserted else "Ter?"
             return f"{self.res(r_start)}{AA3[inserted[0]]}ext{tail}", True
@@ -388,6 +391,8 @@ class _Protein:  # pylint: disable=too-many-instance-attributes
     def variants(self) -> list[str]:
         """descriptions of the protein changes, N- to C-terminal"""
         ref, alt = self.ref, self.alt
+        if not ref:  # no complete codon in the reference: nothing to compare with
+            return [] if self.ref_dna == self.alt_dna else ["?"]
         if ref == alt:
             return self.synonymous()
         i = 0
@@ -408,10 +413,11 @@ class _Protein:  # pylint: disable=too-many-instance-attributes
         if ref.endswith("*") and not self.frameshift:
             stop_index = len(ref) - 1 + (len(self.alt_dna) - len(self.ref_dna)) // 3
         stop_kept = 0 <= stop_index < len(through) and through[stop_index] == "*"
-        if ref[i] == "*" and not stop_kept:
+        if i < len(ref) and ref[i] == "*" and not stop_kept:
             return [self.extension(i)]
         if alt[i] == "*":  # nonsense: the first changed residue is a stop
-            return [f"{self.res(i)}Ter"]
+            # (a stop after the end of the reference translation: effect unknown)
+            return [f"{self.res(i)}Ter"] if i < len(ref) else ["?"]
         if self.frameshift:
             if self.fs_short:
                 return [f"{self.res(i)}fs"]
@@ -424,25 +430,35 @@ class _Protein:  # pylint: disable=too-many-instance-attributes
         # is an insertion, a replaced codon a substitution).  Residues after a new stop are
         # dropped when describing.
         if stop_kept:
-            through = through[: stop_index + 1]
+            # Two readings of the variant protein: through any new stop up to the moved
+            # reference stop (so an inserted stop is an insertion), or up to its first stop
+            # (residues and stops inserted after the stop codon are not translated).
+            readings = [through[: stop_index + 1], alt]
         elif ref.endswith("*") and alt.endswith("*") and len(alt) - 1 < stop_index:
-            ref, through = ref[:-1], alt  # stop codon lost, but a new stop comes first
+            ref, readings = ref[:-1], [alt]  # stop codon lost, but a new stop comes first
         else:
-            through = alt  # stop codon lost (an extension) or no stop codon in ref
-        blocks = _normalize(ref, through, _blocks(ref, through, inversions=False))
-        self.alt = through
+            readings = [alt]  # stop codon lost (an extension) or no stop codon in ref
+        # the reading with the shortest description; on a tie, the first
+        return min((self.describe_reading(ref, reading) for reading in readings), key=lambda d: d[0])[1]
+
+    def describe_reading(self, ref: str, reading: str) -> tuple[int, list[str]]:
+        """descriptions of the in-frame changes from ref to reading, and how many residues
+        they list (residues after a new stop are not listed)"""
+        blocks = _normalize(ref, reading, _blocks(ref, reading, inversions=False))
         stop_removed = ref.endswith("*") and any(
             b[0] <= len(ref) - 1 < b[1] and b[3] - b[2] < b[1] - b[0] for b in blocks
         )
-        if stop_removed and "*" not in through:  # and the given sequence ends: effect unknown
-            return ["?"]
-        result = []
+        if stop_removed and "*" not in reading:  # and the given sequence ends: effect unknown
+            return 0, ["?"]
+        result, listed = [], 0
         for k, block in enumerate(blocks):
-            description, stops = self.describe(block, blocks[k - 1][1] if k else 0)
+            description, stops = self.describe(block, reading, blocks[k - 1][1] if k else 0)
             result.append(description)
+            inserted = reading[block[2] : block[3]]
+            listed += block[1] - block[0] + len(inserted[: inserted.index("*") + 1] if "*" in inserted else inserted)
             if stops:
                 break
-        return result
+        return listed, result
 
 
 # --------------------------------------------------------------------------- API
@@ -470,13 +486,15 @@ def find_variants(
 
     prefix:          coordinate type, the last two characters are used ("g.", "c.", "r.", "p.", ...)
     ref_seq/var_seq: DNA or RNA sequences (any case, U or T)
-    offset:          coordinate of the first base of ref_seq, minus 1 (c./r. skip position 0);
+    offset:          coordinate of the first base of ref_seq, minus 1 (c./r. skip position 0,
+                     other coordinates start at 1, so offset must not be negative);
                      for "p." the coding DNA starts at the first codon boundary after it
     minus_strand:    reverse-complement both sequences first
     fs_short:        describe frameshifts in the short form (p.Glu5fs)
     merge_one_nt:    two changes one nucleotide apart become one delins when they affect one
                      amino acid ("codon", current HGVS rule), "always" (proposed rule), "never"
-    min_copy_length: shortest inserted sequence described as a copy (default 10 nt / 3 aa)
+    min_copy_length: shortest inserted sequence described as a copy (default 10 nt / 3 aa;
+                     never fewer than 2)
     """
     if merge_one_nt not in ("codon", "always", "never"):
         raise ValueError("merge_one_nt must be 'codon', 'always' or 'never'")
@@ -484,6 +502,8 @@ def find_variants(
     if minus_strand:
         ref, alt = reverse_complement(ref), reverse_complement(alt)
     kind = prefix[-2:-1] if prefix.endswith(".") else ""
+    if offset < 0 and kind not in ("c", "r"):
+        raise ValueError(f"Negative offset: {prefix!r} coordinates start at 1")
     if kind == "p":
         return _Protein(ref, alt, offset, fs_short, min_copy_length or MIN_COPY_LENGTH_AA).variants()
     if kind not in ("g", "c", "r", "n", "m", "o"):

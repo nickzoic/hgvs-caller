@@ -77,12 +77,8 @@ def test_nucleotide(prefix, ref, alt, options, expected):
         ("ATGGTTGGTTCATAA", "ATGGTTCTGTAGTCATAA", {}, "p.Gly3delinsLeuTer"),
         # an insertion containing a stop is an insertion (HGVS protein insertion examples)
         ("ATGAAAATGCATTGGTAA", "ATGAAAATGGGGTAGCATTGGTAA", {}, "p.Met3_His4insGlyTer"),
-        (
-            "ATGCCTAACTCATCATGAGCTCCCGCTCCTTAA",
-            "ATGCCTTCATCATGAGCTCCCAACTCATCATGAGCTCCCGCTCCTTAA",
-            {},
-            "p.Pro2_Asn3insSerSerTer",
-        ),
+        # (c.6_7insTCATCATGAGCTCCC, as in the spec's NP_004371.2:p.(Pro46_Asn47insSerSerTer))
+        ("ATGCCTAACGGCTTTTAA", "ATGCCTTCATCATGAGCTCCCAACGGCTTTTAA", {}, "p.Pro2_Asn3insSerSerTer"),
         # stop codon changed: extension (with other changes: in an allele)
         ("ATGGTTGGTTCATAA", "ATGGTTGGTTCACAAGGTTGAAAA", {}, "p.Ter5GlnextTer2"),
         (
@@ -152,3 +148,39 @@ def test_version_matches_metadata():
     except importlib_metadata.PackageNotFoundError:
         pytest.skip("package not installed")
     assert hgvs_caller.__version__ == version
+
+
+@pytest.mark.parametrize(
+    "prefix,ref,alt,options,expected",
+    [
+        # an insertion at each end of the reference, the first merged with the change after it
+        ("g.", "AAA", "CACAAC", {}, "g.[1delinsCAC;3delinsAC]"),
+        ("g.", "CA", "ACCAC", {}, "g.1_2delinsACCAC"),
+        # a copy reference needs a range of at least two
+        ("g.", "CT", "A", {"min_copy_length": 1}, "g.1_2delinsA"),
+        # the variant protein continues after the end of the reference translation
+        ("p.", "AAA", "AAAAAA", {}, "p.Lys1dup"),
+        ("p.", "AAAN", "AAANTAANTT", {"offset": 68}, "p.?"),
+        # no complete codon in the reference
+        ("p.", "AAA", "AAAAAA", {"offset": 1}, "p.?"),
+        # stops inserted after the stop codon do not change the protein
+        ("p.", "AAAACAATAA", "AAAAAAACAATAAAAATAA", {"offset": 134}, "p.Lys46dup"),
+        (
+            "p.",
+            "ATGTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTATAA",
+            "ATGATTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTTATAATAATAA",
+            {},
+            "p.Phe2Ile",
+        ),
+    ],
+)
+def test_regressions_found_by_fuzzing(prefix, ref, alt, options, expected):
+    """cases found by the Hypothesis fuzz tests (tests/test_fuzz.py)"""
+    assert find_variant_string(prefix, ref, alt, **options) == expected
+
+
+@pytest.mark.parametrize("prefix", ["g.", "n.", "m.", "o.", "p."])
+def test_negative_offset_needs_c_or_r_coordinates(prefix):
+    """found by fuzzing: g.0dup; only c. and r. coordinates go below 1"""
+    with pytest.raises(ValueError):
+        find_variant_string(prefix, "ATGAAA", "ATGAAAA", offset=-1)

@@ -38,7 +38,8 @@ From a checkout of https://github.com/nickzoic/hgvs-caller: `pip install .`
 
 `offset` places the reference on the coordinate system: the first base of `ref_seq` gets
 coordinate `offset + 1`. In `c.` and `r.` numbering there is no position 0, so a reference
-starting three bases before the start codon (`c.-3`) has `offset=-4`.
+starting three bases before the start codon (`c.-3`) has `offset=-4`. Other coordinates start
+at 1, so for them a negative `offset` raises `ValueError`.
 
 ```python
 >>> find_variant_string("g.", "TGTGATTCT", "TGTGTTCT", offset=33344586)
@@ -129,11 +130,13 @@ descriptions without the prefix. Invalid sequences or prefixes raise `ValueError
   except as set by `merge_one_nt`.
 - Insertions before the first or after the last base of the reference have only one flanking
   residue, so they are described as a delins of that residue (or as a duplication).
-- **Protein**: a new stop codon is always described (`Ter`), and amino acids after it are not
-  listed; an insertion containing a stop is an insertion (`insGlyTer`), not a delins of the rest
-  of the protein. A change **of the stop codon** is an extension (`Ter5GlnextTer2`); residues
-  added before an unchanged stop codon are an insertion or duplication (`Ser4_Ter5insGly`).
-  Changing `Met1` gives `p.Met1?`.
+- **Protein**: descriptions compare the protein sequences. A stop as the first changed residue
+  is a nonsense variant (`Gly3Ter`); amino acids after a new stop are not listed; an insertion
+  containing a stop is an insertion (`insGlyTer`), not a delins of the rest of the protein.
+  Where an in-frame change could be read either way, the reading with the shorter description
+  is used (stops inserted after the stop codon change nothing). A change **of the stop codon**
+  is an extension (`Ter5GlnextTer2`); residues added before an unchanged stop codon are an
+  insertion or duplication (`Ser4_Ter5insGly`). Changing `Met1` gives `p.Met1?`.
 
 Not supported: intronic positions (`c.88+1G>T`), repeat notation (`c.89_118AGC[13]`),
 uncertain positions, and descriptions on more than one reference sequence.
@@ -159,12 +162,14 @@ Typical cost per read on a 300 bp amplicon:
 
 ```sh
 pip install -e ".[test]"
-pytest
+pytest                                    # all tests
+pytest --cov                              # with a coverage report (pytest-cov)
+pytest tests/test_fuzz.py --hypothesis-profile=fuzz    # a longer fuzz run
 ```
 
-Tests run from a checkout without installing too, and on GitHub Actions on every push
-(Python 3.10 to 3.14, with and without rapidfuzz, plus linting and a test of the built
-package). They include:
+Tests run from a checkout without installing too, and on GitHub Actions on every push:
+Python 3.10 to 3.14 with and without rapidfuzz, each requiring 100% line and branch
+coverage; a longer fuzz run; linting; and a test of the built package. They include:
 
 - `tests/test_hgvs_spec_examples.py`: every example on the HGVS Nomenclature site
   (https://hgvs-nomenclature.org/stable/, version 21.1.5) whose text gives both the reference
@@ -172,9 +177,15 @@ package). They include:
   checked against the spec's description and by applying the description to the reference.
 - `tests/test_api.py`: the API, options and protein edge cases.
 - `tests/test_properties.py`: seeded randomized tests: the described change reproduces the
-  variant sequence (or protein), the 3' rule holds, new stop codons are always described, and
-  the banded alignment equals a full alignment. Set `HGVS_CALLER_PROPERTY_CASES` (default
-  3000) for more cases.
+  variant sequence (or protein), the 3' rule holds, a new stop codon as the first changed
+  residue is described as nonsense, and the banded alignment equals a full alignment. Set
+  `HGVS_CALLER_PROPERTY_CASES` (default 3000) for more cases.
+- `tests/test_fuzz.py`: fuzz tests with [Hypothesis](https://hypothesis.readthedocs.io/),
+  which generates inputs and shrinks any failure to a minimal example: any input gives a
+  well-formed HGVS description or a `ValueError`; every description matches the HGVS grammar
+  and reproduces the variant; unrelated sequence pairs as well as similar ones; and case, T/U,
+  strand and offset changes only change the result as they should. Cases they found are kept
+  as regression tests in `tests/test_api.py`.
 - the doctests in the package and in this README.
 
 Two examples from the specification are not included: the exon/intron junction examples

@@ -6,12 +6,14 @@ reproduces the variant sequence rather than comparing against the caller's own l
 
 import re
 
+from hgvs_caller import translate
+
 COMPLEMENT = str.maketrans("ACGT", "TGCA")
 
 AA1 = {
     "Ala": "A", "Arg": "R", "Asn": "N", "Asp": "D", "Cys": "C", "Gln": "Q", "Glu": "E", "Gly": "G",
     "His": "H", "Ile": "I", "Leu": "L", "Lys": "K", "Met": "M", "Phe": "F", "Pro": "P", "Ser": "S",
-    "Thr": "T", "Trp": "W", "Tyr": "Y", "Val": "V", "Ter": "*",
+    "Thr": "T", "Trp": "W", "Tyr": "Y", "Val": "V", "Ter": "*", "Xaa": "X",
 }  # fmt: skip
 
 
@@ -37,6 +39,8 @@ def apply_nucleotide(description: str, ref: str, offset: int = 0) -> str:
     prefix, edits = split_allele(description)
     skip_zero = prefix in ("c.", "r.") and offset + 1 <= 0
     original = seq = norm(ref)
+    if edits == ["="]:
+        return seq
 
     def idx(pos: str) -> int:
         p = int(pos)
@@ -51,7 +55,7 @@ def apply_nucleotide(description: str, ref: str, offset: int = 0) -> str:
 
     # apply 3' to 5' so positions stay valid
     for edit in sorted(edits, key=first_position, reverse=True):
-        if m := re.fullmatch(r"(-?\d+)([ACGTUacgtu])>([ACGTUacgtu])", edit):
+        if m := re.fullmatch(r"(-?\d+)([ACGTUNacgtun])>([ACGTUNacgtun])", edit):
             i = idx(m.group(1))
             assert seq[i] == norm(m.group(2)), f"{edit}: reference base is {seq[i]}"
             seq = seq[:i] + norm(m.group(3)) + seq[i + 1 :]
@@ -118,3 +122,37 @@ def apply_protein(description: str, protein: str) -> str:
         elif op is None:  # substitution
             seq[start] = AA1[arg]
     return "".join(seq)
+
+
+def check_protein(ref: str, alt: str, called: str) -> None:
+    """assert that a protein description is consistent with the two coding sequences"""
+    ref_p, alt_p = translate(ref), translate(alt)
+    shift = len(alt) - len(ref)
+    context = (ref, alt, called, ref_p, alt_p)
+    if called == "p.=":
+        assert ref_p == alt_p, context
+    elif called == "p.?":  # change beyond the translated part of the given sequence
+        assert not alt_p.endswith("*") or not ref_p.endswith("*"), context
+    elif called == "p.Met1?":
+        assert alt_p[:1] != "M", context
+    elif m := re.fullmatch(r"p\.([A-Z][a-z]{2})(\d+)([A-Z][a-z]{2})fsTer(\d+|\?)", called):
+        i = int(m.group(2)) - 1
+        assert shift % 3 and ref_p[:i] == alt_p[:i] and ref_p[i] == AA1[m.group(1)], context
+        assert alt_p[i] == AA1[m.group(3)] != ref_p[i], context
+        stop = alt_p.find("*", i)
+        assert m.group(4) == ("?" if stop < 0 else str(stop - i + 1)), context
+    elif "ext" in called:  # extension, possibly with other changes before it
+        got = apply_protein(called, ref_p)
+        assert got.endswith("?") and alt_p.startswith(got[:-1]), context
+        tail = re.search(r"extTer(\d+|\?)", called).group(1)  # type: ignore[union-attr]
+        stop = alt_p.find("*")
+        assert tail == ("?" if stop < 0 else str(stop - len(got) + 2)), context
+    else:
+        got = apply_protein(called, ref_p)
+        got = got[: got.index("*") + 1] if "*" in got else got
+        assert got == alt_p, context
+        # nonsense: when the first changed residue is a stop, the description says so
+        first = next((k for k, (x, y) in enumerate(zip(ref_p, alt_p)) if x != y), None)
+        if first is not None and alt_p[first] == "*":
+            three = {v: k for k, v in AA1.items()}
+            assert called == f"p.{three[ref_p[first]]}{first + 1}Ter", context
