@@ -53,8 +53,14 @@ CLUSTER_GAP = 8
 MAX_CLUSTER_LENGTH = 200
 MIN_INVERSION_LENGTH = 2
 
-# Above this many cells the middle region is not aligned but described as one change.
+# If aligning the changed region needs a band of more cells than this (the sequences are
+# too different), it is described as one change instead.
 MAX_ALIGNMENT_CELLS = 4_000_000
+
+
+class _RegionTooDifferent(Exception):
+    """the alignment band would exceed MAX_ALIGNMENT_CELLS"""
+
 
 AA3 = {
     "A": "Ala", "R": "Arg", "N": "Asn", "D": "Asp", "C": "Cys", "Q": "Gln", "E": "Glu", "G": "Gly",
@@ -114,6 +120,8 @@ def _align_edits(ref: str, alt: str) -> list[str]:
     while True:
         low = min(0, m - n) - width  # column j of row i is stored at index j - i - low
         cols = max(0, m - n) + width - low + 1
+        if (n + 1) * cols > MAX_ALIGNMENT_CELLS:
+            raise _RegionTooDifferent
         dist = [[inf] * cols for _ in range(n + 1)]
         row = dist[0]
         for j in range(0, min(m, cols + low - 1) + 1):
@@ -180,6 +188,8 @@ def _align(ref: str, alt: str) -> list[str]:  # pylint: disable=too-many-stateme
     while True:
         low = min(0, m - n) - width  # column j of row i is stored at index j - i - low
         cols = max(0, m - n) + width - low + 1
+        if (n + 1) * cols > MAX_ALIGNMENT_CELLS:
+            raise _RegionTooDifferent
         same = [[inf] * cols for _ in range(n + 1)]  # last operation a match (or the start)
         edit = [[inf] * cols for _ in range(n + 1)]  # last operation an edit
         same[0][-low] = 0
@@ -259,12 +269,15 @@ def _blocks(ref: str, alt: str, inversions: bool, align=_align_edits) -> list[li
 
     if not r_mid and not a_mid:
         return []
-    if not r_mid or not a_mid or len(r_mid) * len(a_mid) > MAX_ALIGNMENT_CELLS:
+    if not r_mid or not a_mid:
         return single
     if inversions and len(r_mid) == len(a_mid) > 1 and a_mid == reverse_complement(r_mid):
         return single
 
-    ops = align(r_mid, a_mid)
+    try:
+        ops = align(r_mid, a_mid)
+    except _RegionTooDifferent:
+        return single
     blocks: list[list[int]] = []
     i, j = prefix, prefix
     for op in reversed(ops):

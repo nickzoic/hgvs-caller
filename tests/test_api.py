@@ -6,6 +6,7 @@ import pytest
 from hgvs_apply import apply_nucleotide
 
 import variant_extractor
+import variant_extractor.extractor
 from variant_extractor import (
     TooManyVariationsException,
     extract_variant_string,
@@ -207,3 +208,28 @@ def test_large_clusters_of_changes(region, spacing):
     alt = "".join(alt)
     description = extract_variant_string("g.", ref, alt)
     assert apply_nucleotide(description, ref) == alt
+
+
+def test_long_sequence_with_scattered_changes():
+    """found by benchmarking: a long changed region is aligned in a band, so changes far
+    apart are described separately (not as one delins of everything between them)"""
+    rng = random.Random(10)
+    ref = "".join(rng.choices("ACGT", k=6000))
+    alt = ref[:1000] + "T" + ref[1001:3000] + ref[3002:5000] + "GGA" + ref[5000:]
+    if ref[1000] == "T":
+        alt = alt[:1000] + "G" + alt[1001:]
+    description = extract_variant_string("g.", ref, alt)
+    assert apply_nucleotide(description, ref) == alt
+    assert description.count(";") == 2, description
+
+
+@pytest.mark.parametrize("aligner", ["_align_edits", "_align"])
+def test_too_different_to_align(aligner, monkeypatch):
+    """when the alignment band would be too large, the region is one change"""
+    # pylint: disable=protected-access
+    monkeypatch.setattr(variant_extractor.extractor, "_edit_distance", lambda ref, alt: 10_000)
+    rng = random.Random(11)
+    ref, alt = "".join(rng.choices("ACGT", k=1000)), "".join(rng.choices("ACGT", k=1000))
+    with pytest.raises(variant_extractor.extractor._RegionTooDifferent):
+        getattr(variant_extractor.extractor, aligner)(ref, alt)
+    assert extract_variant_string("g.", ref, alt).startswith("g.1_1000delins")
