@@ -122,23 +122,47 @@ def test_protein_check_catches_unlabelled_new_stop():
 
 
 def full_alignment(ref: str, alt: str) -> list[str]:
-    """unbanded version of caller._align, for comparison"""
+    """unbanded version of caller._align (fewest edits, then fewest separate changes), for comparison"""
     n, m = len(ref), len(alt)
-    dist = [list(range(m + 1))] + [[i] + [0] * m for i in range(1, n + 1)]
+    k_edit, inf = n + m + 2, (n + m + 1) * (n + m + 2)
+    same = [[inf] * (m + 1) for _ in range(n + 1)]
+    edit = [[inf] * (m + 1) for _ in range(n + 1)]
+    same[0][0] = 0
+    for j in range(1, m + 1):
+        edit[0][j] = j * k_edit + 1
     for i in range(1, n + 1):
+        edit[i][0] = i * k_edit + 1
         for j in range(1, m + 1):
-            dist[i][j] = min(dist[i - 1][j - 1] + (ref[i - 1] != alt[j - 1]), dist[i - 1][j] + 1, dist[i][j - 1] + 1)
-    ops, i, j = [], n, m
+            if ref[i - 1] == alt[j - 1]:
+                same[i][j] = min(same[i - 1][j - 1], edit[i - 1][j - 1])
+                best = inf
+            else:
+                best = min(same[i - 1][j - 1] + k_edit + 1, edit[i - 1][j - 1] + k_edit)
+            best = min(best, same[i - 1][j] + k_edit + 1, edit[i - 1][j] + k_edit)
+            edit[i][j] = min(best, same[i][j - 1] + k_edit + 1, edit[i][j - 1] + k_edit)
+    ops: list[str] = []
+    i, j = n, m
+    in_edit = edit[n][m] < same[n][m]
     while i or j:
-        if i and j and dist[i][j] == dist[i - 1][j - 1] + (ref[i - 1] != alt[j - 1]):
-            ops.append("=" if ref[i - 1] == alt[j - 1] else "X")
+        if not in_edit:
+            ops.append("=")
+            here = same[i][j]
             i, j = i - 1, j - 1
-        elif i and dist[i][j] == dist[i - 1][j] + 1:
-            ops.append("D")
-            i -= 1
-        else:
-            ops.append("I")
-            j -= 1
+            in_edit = same[i][j] != here
+            continue
+        here = edit[i][j]
+        for di, dj, op in ((1, 1, "X"), (1, 0, "D"), (0, 1, "I")):
+            if i < di or j < dj or (op == "X" and ref[i - 1] == alt[j - 1]):
+                continue
+            if edit[i - di][j - dj] + k_edit == here:
+                in_edit = True
+            elif same[i - di][j - dj] + k_edit + 1 == here:
+                in_edit = False
+            else:
+                continue
+            ops.append(op)
+            i, j = i - di, j - dj
+            break
     return ops
 
 

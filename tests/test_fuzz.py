@@ -81,10 +81,12 @@ def check_nucleotide_positions(description: str, prefix: str, ref_length: int, o
         first, last = index(str(positions[0])), index(str(positions[-1]))
         assert 0 <= first <= last < ref_length, description
         assert len(positions) == 1 or first < last, description
-        if re.fullmatch(r"-?\d+_-?\d+ins.*", edit):
-            assert last == first + 1, description
-        assert first > previous_end, description
-        previous_end = last if "ins" not in edit or "delins" in edit else first
+        if re.fullmatch(r"-?\d+_-?\d+ins.*", edit):  # between two positions: may follow a change
+            assert last == first + 1 and first >= previous_end, description
+            previous_end = first
+        else:
+            assert first > previous_end, description
+            previous_end = last
 
 
 # --------------------------------------------------------------------------- strategies
