@@ -121,25 +121,47 @@ def test_protein_check_catches_unlabelled_new_stop():
         check_protein("ATGGTTGGTTCATAA", "ATGGTTTGATCATAA", "p.Gly3_Ser4del")
 
 
-def full_alignment(ref: str, alt: str) -> list[str]:
-    """unbanded version of caller._align (fewest edits, then fewest separate changes), for comparison"""
+def full_alignment_edits(ref: str, alt: str) -> list[str]:
+    """unbanded version of caller._align_edits (fewest edits), for comparison"""
     n, m = len(ref), len(alt)
-    k_edit, inf = n + m + 2, (n + m + 1) * (n + m + 2)
+    dist = [list(range(m + 1))] + [[i] + [0] * m for i in range(1, n + 1)]
+    for i in range(1, n + 1):
+        for j in range(1, m + 1):
+            dist[i][j] = min(dist[i - 1][j - 1] + (ref[i - 1] != alt[j - 1]), dist[i - 1][j] + 1, dist[i][j - 1] + 1)
+    ops, i, j = [], n, m
+    while i or j:
+        if i and j and dist[i][j] == dist[i - 1][j - 1] + (ref[i - 1] != alt[j - 1]):
+            ops.append("=" if ref[i - 1] == alt[j - 1] else "X")
+            i, j = i - 1, j - 1
+        elif i and dist[i][j] == dist[i - 1][j] + 1:
+            ops.append("D")
+            i -= 1
+        else:
+            ops.append("I")
+            j -= 1
+    return ops
+
+
+def full_alignment(ref: str, alt: str) -> list[str]:
+    """unbanded version of caller._align (fewest edits + changes, then edits), for comparison"""
+    n, m = len(ref), len(alt)
+    k = n + m + 2
+    extend, start, inf = k + 1, 2 * k + 1, 3 * (n + m + 1) * k
     same = [[inf] * (m + 1) for _ in range(n + 1)]
     edit = [[inf] * (m + 1) for _ in range(n + 1)]
     same[0][0] = 0
     for j in range(1, m + 1):
-        edit[0][j] = j * k_edit + 1
+        edit[0][j] = start + (j - 1) * extend
     for i in range(1, n + 1):
-        edit[i][0] = i * k_edit + 1
+        edit[i][0] = start + (i - 1) * extend
         for j in range(1, m + 1):
             if ref[i - 1] == alt[j - 1]:
                 same[i][j] = min(same[i - 1][j - 1], edit[i - 1][j - 1])
                 best = inf
             else:
-                best = min(same[i - 1][j - 1] + k_edit + 1, edit[i - 1][j - 1] + k_edit)
-            best = min(best, same[i - 1][j] + k_edit + 1, edit[i - 1][j] + k_edit)
-            edit[i][j] = min(best, same[i][j - 1] + k_edit + 1, edit[i][j - 1] + k_edit)
+                best = min(same[i - 1][j - 1] + start, edit[i - 1][j - 1] + extend)
+            best = min(best, same[i - 1][j] + start, edit[i - 1][j] + extend)
+            edit[i][j] = min(best, same[i][j - 1] + start, edit[i][j - 1] + extend)
     ops: list[str] = []
     i, j = n, m
     in_edit = edit[n][m] < same[n][m]
@@ -154,9 +176,9 @@ def full_alignment(ref: str, alt: str) -> list[str]:
         for di, dj, op in ((1, 1, "X"), (1, 0, "D"), (0, 1, "I")):
             if i < di or j < dj or (op == "X" and ref[i - 1] == alt[j - 1]):
                 continue
-            if edit[i - di][j - dj] + k_edit == here:
+            if edit[i - di][j - dj] + extend == here:
                 in_edit = True
-            elif same[i - di][j - dj] + k_edit + 1 == here:
+            elif same[i - di][j - dj] + start == here:
                 in_edit = False
             else:
                 continue
@@ -167,18 +189,22 @@ def full_alignment(ref: str, alt: str) -> list[str]:
 
 
 @pytest.mark.parametrize("use_rapidfuzz", [True, False])
-def test_banded_alignment_equals_full_alignment(use_rapidfuzz, monkeypatch):
-    """the banded alignment gives the same alignment, with or without rapidfuzz"""
+@pytest.mark.parametrize("aligner", ["_align_edits", "_align"])
+def test_banded_alignment_equals_full_alignment(aligner, use_rapidfuzz, monkeypatch):
+    """each banded alignment gives the same alignment as its unbanded version, with or
+    without rapidfuzz"""
     # pylint: disable=protected-access
     if use_rapidfuzz and caller_module._edit_distance is None:
         pytest.skip("rapidfuzz not installed")
     if not use_rapidfuzz:
         monkeypatch.setattr(caller_module, "_edit_distance", None)
+    banded = getattr(caller_module, aligner)
+    full = full_alignment_edits if aligner == "_align_edits" else full_alignment
     rng = random.Random(6)
     for n in range(CASES):
         ref = "".join(rng.choices("ACGT" if n % 2 else "AT", k=rng.randint(1, 60)))
         alt = mutate(rng, ref)
-        assert caller_module._align(ref, alt) == full_alignment(ref, alt), (ref, alt)
+        assert banded(ref, alt) == full(ref, alt), (ref, alt)
 
 
 def test_round_trip_without_rapidfuzz(monkeypatch):

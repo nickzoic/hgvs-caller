@@ -40,11 +40,11 @@ __all__ = ["find_variants", "find_variant_string", "TooManyVariationsException",
 MIN_COPY_LENGTH_NT = 10
 MIN_COPY_LENGTH_AA = 3
 
-# Inversions inside a changed region: the shortest searched for, how close changes must be to
-# be searched together, and the longest region searched.
-MIN_INVERSION_LENGTH = 3
-INVERSION_CLUSTER_GAP = 4
-MAX_INVERSION_REGION = 200
+# Clusters of changes this close together are aligned again, keeping each change in one
+# piece, and searched for inversions; up to this long; inversions from this length.
+CLUSTER_GAP = 8
+MAX_CLUSTER_LENGTH = 200
+MIN_INVERSION_LENGTH = 2
 
 # Above this many cells the middle region is not aligned but described as one change.
 MAX_ALIGNMENT_CELLS = 4_000_000
@@ -90,23 +90,85 @@ def translate(dna: str, to_stop: bool = True) -> str:
 # --------------------------------------------------------------------------- alignment
 
 
+def _align_edits(ref: str, alt: str) -> list[str]:
+    """Levenshtein alignment as a list of operations in reverse order: "=" match,
+    "X" substitution, "D" deletion from ref, "I" insertion from alt: the fewest edits.
+    On ties a match/substitution is preferred, so changed residues stay together rather
+    than becoming an insertion and a deletion.  Used for the whole changed region; clusters
+    of nearby changes are then aligned again with _align (see _refine).
+
+    Only a band of diagonals is computed: those between 0 and len(alt) - len(ref), widened
+    by `width` on each side.  A path leaving the band needs more than 2 * width insertions
+    and deletions, so when the distance found is at most `width` the result is the same as
+    the full alignment; otherwise the band is doubled and the alignment repeated."""
+    n, m = len(ref), len(alt)
+    inf = n + m + 1
+    width = max(1, _edit_distance(ref, alt)) if _edit_distance is not None else 2
+    while True:
+        low = min(0, m - n) - width  # column j of row i is stored at index j - i - low
+        cols = max(0, m - n) + width - low + 1
+        dist = [[inf] * cols for _ in range(n + 1)]
+        row = dist[0]
+        for j in range(0, min(m, cols + low - 1) + 1):
+            row[j - low] = j
+        for i in range(1, n + 1):
+            prev, row, r_char = dist[i - 1], dist[i], ref[i - 1]
+            for k in range(max(0, i + low) - i - low, min(m, i + low + cols - 1) - i - low + 1):
+                j = i + low + k
+                if j == 0:
+                    row[k] = i
+                    continue
+                best = prev[k] + (r_char != alt[j - 1])  # diagonal: same k in previous row
+                if k + 1 < cols and prev[k + 1] + 1 < best:  # from above: (i-1, j)
+                    best = prev[k + 1] + 1
+                if k and row[k - 1] + 1 < best:  # from the left: (i, j-1)
+                    best = row[k - 1] + 1
+                row[k] = best
+        if dist[n][m - n - low] <= width or width >= n + m:
+            break
+        width *= 2
+
+    def get(i: int, j: int) -> int:
+        k = j - i - low
+        return dist[i][k] if 0 <= k < cols else inf
+
+    ops = []
+    i, j = n, m
+    while i or j:
+        here = get(i, j)
+        if i and j and here == get(i - 1, j - 1) + (ref[i - 1] != alt[j - 1]):
+            ops.append("=" if ref[i - 1] == alt[j - 1] else "X")
+            i, j = i - 1, j - 1
+        elif i and here == get(i - 1, j) + 1:
+            ops.append("D")
+            i -= 1
+        else:
+            ops.append("I")
+            j -= 1
+    return ops
+
+
 def _align(ref: str, alt: str) -> list[str]:  # pylint: disable=too-many-statements
     """Alignment of ref and alt as a list of operations in reverse order: "=" match,
     "X" substitution, "D" deletion from ref, "I" insertion from alt.
 
-    Minimizes the number of edits, then the number of separate changes (runs of edits), so
-    that e.g. a deletion is not split in two around a matching base.  Remaining ties prefer
-    a match or substitution, so changed residues stay together rather than becoming an
-    insertion and a deletion.  The cost of a path is edits * k + changes; the two states
-    record whether the last operation was a match ("=") or an edit.
+    Minimizes edits plus changes (runs of edits), an affine gap cost where starting a change
+    costs one more than continuing it, then edits: so that e.g. a deletion is not split in
+    two around a matching base, and a stretch of many small changes may be one larger
+    change.  Remaining ties prefer a match or substitution, so changed residues stay
+    together rather than becoming an insertion and a deletion.  The cost of a path is
+    (edits + changes) * k + edits; the two states record whether the last operation was a
+    match ("=") or an edit.  Used for clusters of nearby changes (see _refine).
 
     Only a band of diagonals is computed: those between 0 and len(alt) - len(ref), widened
     by `width` on each side.  A path leaving the band needs more than 2 * width insertions
-    and deletions, so when the number of edits found is at most `width` the result is the
-    same as the full alignment; otherwise the band is doubled and the alignment repeated."""
+    and deletions, so when the edits plus changes found are at most 2 * width + 2 the result
+    is the same as the full alignment; otherwise the band is doubled and the alignment
+    repeated."""
     n, m = len(ref), len(alt)
-    k_edit = n + m + 2  # more than any number of changes
-    inf = (n + m + 1) * k_edit
+    k = n + m + 2  # more than any number of edits
+    extend, start = k + 1, 2 * k + 1  # the cost of an edit continuing or starting a change
+    inf = 3 * (n + m + 1) * k
     width = max(1, _edit_distance(ref, alt)) if _edit_distance is not None else 2
     while True:
         low = min(0, m - n) - width  # column j of row i is stored at index j - i - low
@@ -115,32 +177,31 @@ def _align(ref: str, alt: str) -> list[str]:  # pylint: disable=too-many-stateme
         edit = [[inf] * cols for _ in range(n + 1)]  # last operation an edit
         same[0][-low] = 0
         for j in range(1, min(m, cols + low - 1) + 1):
-            edit[0][j - low] = j * k_edit + 1
+            edit[0][j - low] = start + (j - 1) * extend
         for i in range(1, n + 1):
             s_prev, e_prev, s_row, e_row, r_char = same[i - 1], edit[i - 1], same[i], edit[i], ref[i - 1]
-            for k in range(max(0, i + low) - i - low, min(m, i + low + cols - 1) - i - low + 1):
-                j = i + low + k
+            for c in range(max(0, i + low) - i - low, min(m, i + low + cols - 1) - i - low + 1):
+                j = i + low + c
                 if j == 0:
-                    e_row[k] = i * k_edit + 1
+                    e_row[c] = start + (i - 1) * extend
                     continue
-                diagonal = min(s_prev[k], e_prev[k])  # same k in the previous row
                 if r_char == alt[j - 1]:
-                    s_row[k] = diagonal
+                    s_row[c] = min(s_prev[c], e_prev[c])  # same c in the previous row
                     best = inf
                 else:
-                    best = min(s_prev[k] + k_edit + 1, e_prev[k] + k_edit)
-                if k + 1 < cols:  # from above: (i-1, j), a deletion
-                    best = min(best, s_prev[k + 1] + k_edit + 1, e_prev[k + 1] + k_edit)
-                if k:  # from the left: (i, j-1), an insertion
-                    best = min(best, s_row[k - 1] + k_edit + 1, e_row[k - 1] + k_edit)
-                e_row[k] = best
-        if min(same[n][m - n - low], edit[n][m - n - low]) // k_edit <= width or width >= n + m:
+                    best = min(s_prev[c] + start, e_prev[c] + extend)
+                if c + 1 < cols:  # from above: (i-1, j), a deletion
+                    best = min(best, s_prev[c + 1] + start, e_prev[c + 1] + extend)
+                if c:  # from the left: (i, j-1), an insertion
+                    best = min(best, s_row[c - 1] + start, e_row[c - 1] + extend)
+                e_row[c] = best
+        if min(same[n][m - n - low], edit[n][m - n - low]) // k <= 2 * width + 2 or width >= n + m:
             break
         width *= 2
 
     def get(table: list[list[int]], i: int, j: int) -> int:
-        k = j - i - low
-        return table[i][k] if 0 <= k < cols else inf
+        c = j - i - low
+        return table[i][c] if 0 <= c < cols else inf
 
     ops = []
     i, j = n, m
@@ -157,7 +218,7 @@ def _align(ref: str, alt: str) -> list[str]:  # pylint: disable=too-many-stateme
         here = get(edit, i, j)
 
         def reaches(di: int, dj: int) -> bool:
-            return here in (get(edit, i - di, j - dj) + k_edit, get(same, i - di, j - dj) + k_edit + 1)
+            return here in (get(edit, i - di, j - dj) + extend, get(same, i - di, j - dj) + start)
 
         if i and j and ref[i - 1] != alt[j - 1] and reaches(1, 1):
             di, dj, op = 1, 1, "X"
@@ -165,13 +226,13 @@ def _align(ref: str, alt: str) -> list[str]:  # pylint: disable=too-many-stateme
             di, dj, op = 1, 0, "D"
         else:
             di, dj, op = 0, 1, "I"
-        in_edit = get(edit, i - di, j - dj) + k_edit == here
+        in_edit = get(edit, i - di, j - dj) + extend == here
         ops.append(op)
         i, j = i - di, j - dj
     return ops
 
 
-def _blocks(ref: str, alt: str, inversions: bool) -> list[list[int]]:
+def _blocks(ref: str, alt: str, inversions: bool, align=_align_edits) -> list[list[int]]:
     """Changed regions between ref and alt as [ref_start, ref_end, alt_start, alt_end]
     (python-style half-open ranges), in order.
 
@@ -196,7 +257,7 @@ def _blocks(ref: str, alt: str, inversions: bool) -> list[list[int]]:
     if inversions and len(r_mid) == len(a_mid) > 1 and a_mid == reverse_complement(r_mid):
         return single
 
-    ops = _align(r_mid, a_mid)
+    ops = align(r_mid, a_mid)
     blocks: list[list[int]] = []
     i, j = prefix, prefix
     for op in reversed(ops):
@@ -219,23 +280,30 @@ def _is_inversion(ref: str, alt: str, block: list[int]) -> bool:
     return r_end - r_start == a_end - a_start > 1 and alt[a_start:a_end] == reverse_complement(ref[r_start:r_end])
 
 
-def _cost(ref: str, alt: str, blocks: list[list[int]]) -> int:
-    """rough length of a description: one per change, plus each inserted residue listed"""
-    return sum(1 + (0 if _is_inversion(ref, alt, b) else b[3] - b[2]) for b in blocks)
+def _cost(ref: str, alt: str, blocks: list[list[int]]) -> tuple[int, int]:
+    """Edits plus changes (each change also costs one, as an affine gap penalty does), then
+    edits.  Edits: two for an inversion (one for each breakpoint), otherwise the most of the
+    deleted and inserted residues (a change contains no matching residues)."""
+    edits = sum(2 if _is_inversion(ref, alt, b) else max(b[1] - b[0], b[3] - b[2]) for b in blocks)
+    return edits + len(blocks), edits
 
 
 def _offset_blocks(ref: str, alt: str, r_start: int, a_start: int) -> list[list[int]]:
-    """_blocks of ref and alt, with positions moved by r_start and a_start"""
-    return [[b[0] + r_start, b[1] + r_start, b[2] + a_start, b[3] + a_start] for b in _blocks(ref, alt, True)]
+    """_blocks of ref and alt aligned with _align, with positions moved by r_start and a_start"""
+    return [[b[0] + r_start, b[1] + r_start, b[2] + a_start, b[3] + a_start] for b in _blocks(ref, alt, True, _align)]
 
 
-def _with_inversion(ref: str, alt: str, cluster: list[list[int]]) -> list[list[int]]:
-    """The changes of a cluster, or an inversion inside the cluster with the changes either
-    side of it, whichever is described more briefly (e.g. [26_29inv;30C>G] rather than
-    [25_26insCC;28del;30del])."""
+def _refine_cluster(ref: str, alt: str, cluster: list[list[int]]) -> list[list[int]]:
+    """The changes of a cluster, aligned again with _align so that no change is split in two;
+    or an inversion inside the cluster with the changes either side of it, whichever costs
+    less by _cost (e.g. [26_29inv;30C>G] rather than [25_26insCC;29_30del])."""
     r0, r1, a0, a1 = cluster[0][0], cluster[-1][1], cluster[0][2], cluster[-1][3]
     n, m = r1 - r0, a1 - a0
-    if min(n, m) < MIN_INVERSION_LENGTH or max(n, m) > MAX_INVERSION_REGION:
+    if max(n, m) > MAX_CLUSTER_LENGTH:
+        return cluster
+    if len(cluster) > 1:  # the same number of edits, with each change in one piece
+        cluster = _offset_blocks(ref[r0:r1], alt[a0:a1], r0, a0)
+    if min(n, m) < MIN_INVERSION_LENGTH:
         return cluster
     inverted, region = reverse_complement(ref[r0:r1]), alt[a0:a1]
     # runs[p][q]: length of the common substring of inverted and region ending before p, q
@@ -244,7 +312,9 @@ def _with_inversion(ref: str, alt: str, cluster: list[list[int]]) -> list[list[i
         for q in range(1, m + 1):
             if inverted[p - 1] == region[q - 1]:
                 runs[p][q] = runs[p - 1][q - 1] + 1
-    candidates = sorted(
+    # the longest common substrings (maximal: not extending further), and in small regions
+    # also shorter ones, nearest first to the diagonals of the changes around them
+    longest = sorted(
         (
             (runs[p][q], p, q)
             for p in range(1, n + 1)
@@ -252,10 +322,33 @@ def _with_inversion(ref: str, alt: str, cluster: list[list[int]]) -> list[list[i
             if runs[p][q] >= MIN_INVERSION_LENGTH and (p == n or q == m or runs[p + 1][q + 1] == 0)
         ),
         reverse=True,
-    )
+    )[:20]
+    nearest: list[tuple[int, int, int]] = []
+    if n * m <= 2500:
+
+        def distance(length: int, p: int, q: int) -> int:
+            diagonal = (q - length) - (n - p)  # alt start minus ref start, within the region
+            return min(abs(diagonal), abs(diagonal - (m - n)))
+
+        nearest = sorted(
+            (
+                (length, p, q)
+                for p in range(1, n + 1)
+                for q in range(1, m + 1)
+                for length in range(MIN_INVERSION_LENGTH, runs[p][q] + 1)
+            ),
+            key=lambda c: (distance(*c), -c[0]),
+        )[:20]
+    candidates = list(dict.fromkeys(longest + nearest))
     best, best_cost = cluster, _cost(ref, alt, cluster)
-    for length, p, q in candidates[:5]:
+    for length, p, q in candidates:
         r_inv, a_inv = r0 + n - p, a0 + q - length  # inverted[p - length:p] is ref[r_inv:r_inv + length]
+        # residues at the ends that inverting leaves unchanged are not part of the inversion
+        # (a stretch that is its own reverse complement is not changed by inverting it)
+        while length >= 2 and ref[r_inv] == alt[a_inv] and ref[r_inv + length - 1] == alt[a_inv + length - 1]:
+            r_inv, a_inv, length = r_inv + 1, a_inv + 1, length - 2
+        if length < MIN_INVERSION_LENGTH:
+            continue
         blocks = (
             _offset_blocks(ref[r0:r_inv], alt[a0:a_inv], r0, a0)
             + [[r_inv, r_inv + length, a_inv, a_inv + length]]
@@ -267,19 +360,20 @@ def _with_inversion(ref: str, alt: str, cluster: list[list[int]]) -> list[list[i
     return best
 
 
-def _inversions(ref: str, alt: str, blocks: list[list[int]]) -> list[list[int]]:
-    """the changes, with clusters of nearby changes replaced by an inversion where briefer"""
+def _refine(ref: str, alt: str, blocks: list[list[int]]) -> list[list[int]]:
+    """the changes, with each cluster of nearby changes aligned again so that no change is
+    split in two, and with an inversion where that needs fewer edits"""
     result: list[list[int]] = []
     k = 0
     while k < len(blocks):
         j = k
         while (
             j + 1 < len(blocks)
-            and blocks[j + 1][0] - blocks[j][1] <= INVERSION_CLUSTER_GAP
-            and blocks[j + 1][2] - blocks[j][3] <= INVERSION_CLUSTER_GAP
+            and blocks[j + 1][0] - blocks[j][1] <= CLUSTER_GAP
+            and blocks[j + 1][2] - blocks[j][3] <= CLUSTER_GAP
         ):
             j += 1
-        result += _with_inversion(ref, alt, blocks[k : j + 1])
+        result += _refine_cluster(ref, alt, blocks[k : j + 1])
         k = j + 1
     return result
 
@@ -405,7 +499,7 @@ class _Nucleotide:
     def variants(self) -> list[str]:
         """descriptions of all changes, 5' to 3'"""
         blocks: list[list[int]] = []
-        for block in _inversions(self.ref, self.alt, _blocks(self.ref, self.alt, inversions=True)):
+        for block in _refine(self.ref, self.alt, _blocks(self.ref, self.alt, inversions=True)):
             # an inversion stays separate, even next to another change (as in the spec's
             # g.[776788_93191545inv;93191546T>C])
             if (

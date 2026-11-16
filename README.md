@@ -153,20 +153,25 @@ uncertain positions, and descriptions on more than one reference sequence.
 
 The common prefix and then the common suffix of the two sequences are removed, which on its
 own puts a single change at its most 3' position. The remaining middle is aligned with the
-fewest edits and, among those, the fewest separate changes (so a deletion is not split around
-a matching base), preferring substitutions on remaining ties so that adjacent changes stay
-together. The alignment is computed in a band around the diagonal, widened until the result
-is provably the same as a full alignment. Clusters of nearby changes are searched for an
-inversion that describes them more briefly. The changes are then merged per the rules above,
-shifted 3', and classified. If `rapidfuzz` is installed it is used to compute the edit
-distance that sizes the band; the results are the same with or without it.
+fewest edits, preferring substitutions on ties so that adjacent changes stay together, in a
+band around the diagonal that is widened until the result is provably the same as a full
+alignment.
+
+Clusters of nearby changes (up to 8 bases apart) are then aligned again with an affine gap
+cost, where starting a change costs one more than continuing it: edits plus changes, then
+edits. So a deletion is not split around a matching base, and a stretch of many small changes
+can become one larger change. Each cluster is also searched for an inversion (counted as two
+edits, one per breakpoint), which is used where it costs less by the same measure, e.g.
+`[26_29inv;30C>G]` rather than `[25_26insCC;29_30del]`. The changes are then merged per the
+rules above, shifted 3', and classified. If `rapidfuzz` is installed it is used to compute the
+edit distance that sizes the band; the results are the same with or without it.
 
 Typical cost per read on a 300 bp amplicon:
 
 | changes in the read     | `g.`, with rapidfuzz | `g.`, pure Python | `p.`     |
 |-------------------------|----------------------|-------------------|----------|
-| one                     | 18 µs                | 18 µs             | 9-12 µs  |
-| three, far apart        | 430 µs               | 870 µs            | 14-21 µs |
+| one                     | 18 µs                | 17 µs             | 9-11 µs  |
+| three, far apart        | 250 µs               | 480 µs            | 17-18 µs |
 
 ## Tests
 
@@ -213,13 +218,16 @@ extractor built: Python 3.10, SWIG from PyPI, biopython and
 
 | share | |
 |-------|-|
-| 73.4% | the same description |
-| 18.0% | the extractor joins separate changes in one delins (`32_41delinsTCCCAT` for `[32_33del;36_38del;43dup]`); HGVS describes changes separated by one or more nucleotides individually |
-| 7.5%  | both correct, different alignment: the extractor minimizes the length of the description, which prefers fewer, larger changes (`[5_14del;18_19insACC]`); hgvs_caller minimizes the number of edited bases |
+| 74.0% | the same description |
+| 17.9% | the extractor joins separate changes in one delins (`32_41delinsTCCCAT` for `[32_33del;36_38del;43dup]`); HGVS describes changes separated by one or more nucleotides individually |
+| 7.0%  | both correct, different alignment: the extractor minimizes the length of the description, hgvs_caller edits plus changes (see Method) |
 | 0.8%  | the extractor's description does not give the variant sequence (e.g. an inversion one base out) |
 | 0.3%  | the extractor uses a position outside the reference (`0_1insAATAC`) |
 
-Every description from hgvs_caller gave the variant sequence.
+Every description from hgvs_caller gave the variant sequence. Where both are correct and the
+extractor does not join separate changes, scored by hgvs_caller's measure (edits plus changes,
+then edits): hgvs_caller's description costs less for 1574 pairs, the same for 235, and more
+for 13, all with several inversions close together.
 
 ## Origin
 

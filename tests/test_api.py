@@ -1,6 +1,9 @@
 """Tests of the public API and of behaviour not covered by the specification examples."""
 
+import random
+
 import pytest
+from hgvs_apply import apply_nucleotide
 
 import hgvs_caller
 from hgvs_caller import TooManyVariationsException, find_variant_string, find_variants, reverse_complement, translate
@@ -184,3 +187,17 @@ def test_negative_offset_needs_c_or_r_coordinates(prefix):
     """found by fuzzing: g.0dup; only c. and r. coordinates go below 1"""
     with pytest.raises(ValueError):
         find_variant_string(prefix, "ATGAAA", "ATGAAAA", offset=-1)
+
+
+@pytest.mark.parametrize("region,spacing", [(80, 6), (260, 6)])
+def test_large_clusters_of_changes(region, spacing):
+    """a densely changed region: searched with fewer inversion candidates (above 50 x 50),
+    or not refined at all (above 200), and still described correctly"""
+    rng = random.Random(region)
+    ref = "".join(rng.choices("ACGT", k=region + 40))
+    alt = list(ref)
+    for i in range(20, 20 + region, spacing):  # a change every few bases: one cluster
+        alt[i] = "ACGT"[("ACGT".index(alt[i]) + 1) % 4]
+    alt = "".join(alt)
+    description = find_variant_string("g.", ref, alt)
+    assert apply_nucleotide(description, ref) == alt
