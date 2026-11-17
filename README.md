@@ -1,6 +1,6 @@
 # HGVS Extractor
 
-[![tests](https://github.com/nickzoic/hgvs-extractor/actions/workflows/tests.yml/badge.svg)](https://github.com/nickzoic/hgvs-extractor/actions/workflows/tests.yml)
+[![tests](https://github.com/nickzoic/hgvs_extractor/actions/workflows/tests.yml/badge.svg)](https://github.com/nickzoic/hgvs_extractor/actions/workflows/tests.yml)
 
 Extract [HGVS](https://hgvs-nomenclature.org/stable/) variant descriptions from two sequences:
 give it a reference and a variant nucleotide sequence, get back a description such as
@@ -26,7 +26,7 @@ pip install hgvs_extractor           # pure Python
 pip install "hgvs_extractor[fast]"   # also installs rapidfuzz: faster for reads with several changes
 ```
 
-From a checkout of https://github.com/nickzoic/hgvs-extractor: `pip install .`
+From a checkout of https://github.com/nickzoic/hgvs_extractor: `pip install .`
 (or `pip install -e ".[dev]"` for development).
 
 ## Usage
