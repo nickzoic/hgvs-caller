@@ -1,13 +1,13 @@
-# Variant Extractor
+# HGVS Extractor
 
-[![tests](https://github.com/nickzoic/variant-extractor/actions/workflows/tests.yml/badge.svg)](https://github.com/nickzoic/variant-extractor/actions/workflows/tests.yml)
+[![tests](https://github.com/nickzoic/hgvs-extractor/actions/workflows/tests.yml/badge.svg)](https://github.com/nickzoic/hgvs-extractor/actions/workflows/tests.yml)
 
 Extract [HGVS](https://hgvs-nomenclature.org/stable/) variant descriptions from two sequences:
 give it a reference and a variant nucleotide sequence, get back a description such as
 `c.20_23dup`, `r.775delinsga` or `p.Glu5ValfsTer5`.
 
 ```python
->>> from variant_extractor import extract_variant_string
+>>> from hgvs_extractor import extract_variant_string
 >>> extract_variant_string("c.", "AGAAGTAGAGG", "AGAAGTAGATAGAGG", offset=14)
 'c.20_23dup'
 
@@ -22,17 +22,17 @@ give it a reference and a variant nucleotide sequence, get back a description su
 ## Installation
 
 ```sh
-pip install variant_extractor           # pure Python
-pip install "variant_extractor[fast]"   # also installs rapidfuzz: faster for reads with several changes
+pip install hgvs_extractor           # pure Python
+pip install "hgvs_extractor[fast]"   # also installs rapidfuzz: faster for reads with several changes
 ```
 
-From a checkout of https://github.com/nickzoic/variant-extractor: `pip install .`
+From a checkout of https://github.com/nickzoic/hgvs-extractor: `pip install .`
 (or `pip install -e ".[dev]"` for development).
 
 ## Usage
 
 ```python
->>> from variant_extractor import extract_variant_string, extract_variants
+>>> from hgvs_extractor import extract_variant_string, extract_variants
 
 ```
 
@@ -198,7 +198,7 @@ coverage; a longer fuzz run; linting; and a test of the built package. They incl
 - `tests/test_properties.py`: seeded randomized tests: the described change reproduces the
   variant sequence (or protein), the 3' rule holds, a new stop codon as the first changed
   residue is described as nonsense, and the banded alignment equals a full alignment. Set
-  `VARIANT_EXTRACTOR_PROPERTY_CASES` (default 3000) for more cases.
+  `HGVS_EXTRACTOR_PROPERTY_CASES` (default 3000) for more cases.
 - `tests/test_fuzz.py`: fuzz tests with [Hypothesis](https://hypothesis.readthedocs.io/),
   which generates inputs and shrinks any failure to a minimal example: any input gives a
   well-formed HGVS description or a `ValueError`; every description matches the HGVS grammar
@@ -224,31 +224,31 @@ description-extractor built: Python 3.10, SWIG from PyPI, biopython and
 |-------|-|
 | 74.0% | the same description |
 | 17.9% | description-extractor joins separate changes in one delins (`32_41delinsTCCCAT` for `[32_33del;36_38del;43dup]`); HGVS describes changes separated by one or more nucleotides individually |
-| 7.0%  | both correct, different alignment: description-extractor minimizes the length of the description, variant_extractor edits plus changes (see Method) |
+| 7.0%  | both correct, different alignment: description-extractor minimizes the length of the description, hgvs_extractor edits plus changes (see Method) |
 | 0.8%  | description-extractor's description does not give the variant sequence (e.g. an inversion one base out) |
 | 0.3%  | description-extractor uses a position outside the reference (`0_1insAATAC`) |
 
-Every description from variant_extractor gave the variant sequence. Where both are correct and
-description-extractor does not join separate changes, scored by variant_extractor's measure (edits plus changes,
-then edits): variant_extractor's description costs less for 1574 pairs, the same for 235, and more
+Every description from hgvs_extractor gave the variant sequence. Where both are correct and
+description-extractor does not join separate changes, scored by hgvs_extractor's measure (edits plus changes,
+then edits): hgvs_extractor's description costs less for 1574 pairs, the same for 235, and more
 for 13, all with several inversions close together.
 
 ## Benchmark
 
-[BENCHMARK.md](BENCHMARK.md) compares variant_extractor with countess-variant-caller, Mutalyzer 2's
+[BENCHMARK.md](BENCHMARK.md) compares hgvs_extractor with countess-variant-caller, Mutalyzer 2's
 description-extractor, Mutalyzer 3's description extractor and mutalyzer-algebra on 7063 cases
 (`tools/benchmark.py`). In brief, on 5000 random short sequence pairs:
 
 | tool | correct, valid HGVS | correct, positions outside the reference | wrong | time per pair |
 |---|---|---|---|---|
-| variant_extractor | 100% | 0% | 0% | 164 µs |
+| hgvs_extractor | 100% | 0% | 0% | 164 µs |
 | countess-variant-caller | 92.7% | 4.3% | 2.9% | 7 µs |
 | Mutalyzer 2 description-extractor | 95.9% | 3.3% | 0.8% | 38 µs |
 | Mutalyzer 3 description_extractor | 96.7% | 3.3% | 0% | 125 µs |
 | mutalyzer-algebra | 95.7% | 4.3% | 0% | 112 µs |
 
-variant_extractor also gave the HGVS specification's description for the most of its examples
-(24 of 25, against 19 for Mutalyzer). countess-variant-caller is the fastest; variant_extractor
+hgvs_extractor also gave the HGVS specification's description for the most of its examples
+(24 of 25, against 19 for Mutalyzer). countess-variant-caller is the fastest; hgvs_extractor
 is about as fast as Mutalyzer 2's C++ (faster for one change, and on 10 kb sequences).
 
 ## Origin

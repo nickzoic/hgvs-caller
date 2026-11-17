@@ -9,7 +9,7 @@ scored together, so that every tool's descriptions are checked the same way:
 
 Run from the repository root with PYTHONPATH=src:tests:tools.  Tools (see TOOLS):
 
-* variant_extractor, with and without rapidfuzz (this package)
+* hgvs_extractor, with and without rapidfuzz (this package)
 * countess-variant-caller (pip install countess-variant-caller)
 * Mutalyzer 2: https://github.com/mutalyzer/description-extractor, built as described in
   tools/compare_description_extractor.py
@@ -38,18 +38,16 @@ Extractor = Callable[[str, str], str]  # (reference, observed) -> description wi
 # --------------------------------------------------------------------------- tools
 
 
-def _variant_extractor(rapidfuzz: bool) -> tuple[Extractor, str]:
+def _hgvs_extractor(rapidfuzz: bool) -> tuple[Extractor, str]:
     # pylint: disable=import-outside-toplevel,protected-access
-    import variant_extractor.extractor as module
-    from variant_extractor import extract_variant_string
+    import hgvs_extractor.extractor as module
+    from hgvs_extractor import extract_variant_string
 
     if not rapidfuzz:
         module._edit_distance = None
     elif module._edit_distance is None:
         raise ImportError("rapidfuzz is not installed")
-    return (lambda ref, alt: extract_variant_string("g.", ref, alt)[2:]), importlib.metadata.version(
-        "variant_extractor"
-    )
+    return (lambda ref, alt: extract_variant_string("g.", ref, alt)[2:]), importlib.metadata.version("hgvs_extractor")
 
 
 def _countess() -> tuple[Extractor, str]:
@@ -85,8 +83,8 @@ def _algebra() -> tuple[Extractor, str]:
 
 
 TOOLS: dict[str, Callable[[], tuple[Extractor, str]]] = {
-    "variant_extractor": lambda: _variant_extractor(True),
-    "variant_extractor (pure Python)": lambda: _variant_extractor(False),
+    "hgvs_extractor": lambda: _hgvs_extractor(True),
+    "hgvs_extractor (pure Python)": lambda: _hgvs_extractor(False),
     "countess-variant-caller": _countess,
     "Mutalyzer 2 description-extractor": _mutalyzer2,
     "Mutalyzer 3 description_extractor": _mutalyzer3,

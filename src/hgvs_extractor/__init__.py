@@ -1,6 +1,6 @@
 """Extract HGVS variant descriptions from a reference and a variant nucleotide sequence.
 
->>> from variant_extractor import extract_variant_string
+>>> from hgvs_extractor import extract_variant_string
 >>> extract_variant_string("c.", "CATGACA", "CATATAACA", offset=2073)
 'c.2077delinsATA'
 """

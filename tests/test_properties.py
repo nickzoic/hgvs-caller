@@ -8,7 +8,7 @@ For random reference sequences and random changes, check that:
   changed residue and stop position, and a new stop codon is always described as Ter;
 * the banded alignment gives exactly the same result as a full alignment.
 
-Set VARIANT_EXTRACTOR_PROPERTY_CASES to change the number of random cases per test.
+Set HGVS_EXTRACTOR_PROPERTY_CASES to change the number of random cases per test.
 """
 
 import os
@@ -18,10 +18,10 @@ import re
 import pytest
 from hgvs_apply import apply_nucleotide, check_protein, revcomp
 
-import variant_extractor.extractor as extractor_module
-from variant_extractor import extract_variant_string
+import hgvs_extractor.extractor as extractor_module
+from hgvs_extractor import extract_variant_string
 
-CASES = int(os.environ.get("VARIANT_EXTRACTOR_PROPERTY_CASES", "3000"))
+CASES = int(os.environ.get("HGVS_EXTRACTOR_PROPERTY_CASES", "3000"))
 SENSE_CODONS = [codon for codon, aa in extractor_module.CODON_TABLE.items() if aa != "*"]
 
 

@@ -5,9 +5,9 @@ import random
 import pytest
 from hgvs_apply import apply_nucleotide
 
-import variant_extractor
-import variant_extractor.extractor
-from variant_extractor import (
+import hgvs_extractor
+import hgvs_extractor.extractor
+from hgvs_extractor import (
     TooManyVariationsException,
     extract_variant_string,
     extract_variants,
@@ -154,10 +154,10 @@ def test_helpers():
 def test_version_matches_metadata():
     importlib_metadata = pytest.importorskip("importlib.metadata")
     try:
-        version = importlib_metadata.version("variant_extractor")
+        version = importlib_metadata.version("hgvs_extractor")
     except importlib_metadata.PackageNotFoundError:
         pytest.skip("package not installed")
-    assert variant_extractor.__version__ == version
+    assert hgvs_extractor.__version__ == version
 
 
 @pytest.mark.parametrize(
@@ -227,11 +227,11 @@ def test_long_sequence_with_scattered_changes():
 def test_too_different_to_align(aligner, monkeypatch):
     """when the alignment band would be too large, the region is one change"""
     # pylint: disable=protected-access
-    monkeypatch.setattr(variant_extractor.extractor, "_edit_distance", lambda ref, alt, score_cutoff: score_cutoff + 1)
+    monkeypatch.setattr(hgvs_extractor.extractor, "_edit_distance", lambda ref, alt, score_cutoff: score_cutoff + 1)
     rng = random.Random(11)
     ref, alt = "".join(rng.choices("ACGT", k=1000)), "".join(rng.choices("ACGT", k=1000))
-    with pytest.raises(variant_extractor.extractor._RegionTooDifferent):
-        getattr(variant_extractor.extractor, aligner)(ref, alt)
+    with pytest.raises(hgvs_extractor.extractor._RegionTooDifferent):
+        getattr(hgvs_extractor.extractor, aligner)(ref, alt)
     assert extract_variant_string("g.", ref, alt).startswith("g.1_1000delins")
 
 
@@ -244,7 +244,7 @@ def test_many_changes(monkeypatch):
         calls.append(score_cutoff)
         return min(answer["distance"], score_cutoff + 1)
 
-    monkeypatch.setattr(variant_extractor.extractor, "_edit_distance", distance)
+    monkeypatch.setattr(hgvs_extractor.extractor, "_edit_distance", distance)
     rng = random.Random(12)
     ref = "".join(rng.choices("ACGT", k=500))
     alt = list(ref)

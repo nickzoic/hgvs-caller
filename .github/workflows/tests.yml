@@ -53,7 +53,7 @@ jobs:
         run: python -m pytest -v tests/test_fuzz.py --hypothesis-profile=fuzz --hypothesis-show-statistics
       - name: Randomized tests, more cases
         env:
-          VARIANT_EXTRACTOR_PROPERTY_CASES: "30000"
+          HGVS_EXTRACTOR_PROPERTY_CASES: "30000"
         run: python -m pytest -v tests/test_properties.py
 
   lint:
@@ -95,7 +95,7 @@ jobs:
         run: |
           python -m venv /tmp/wheel-env
           /tmp/wheel-env/bin/pip install "$(ls dist/*.whl)[test]"
-          /tmp/wheel-env/bin/python -m pytest -v -o pythonpath=tests tests README.md --doctest-modules --pyargs variant_extractor
+          /tmp/wheel-env/bin/python -m pytest -v -o pythonpath=tests tests README.md --doctest-modules --pyargs hgvs_extractor
       - uses: actions/upload-artifact@v7
         with:
           name: dist

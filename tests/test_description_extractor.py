@@ -7,7 +7,7 @@ https://github.com/mutalyzer/description-extractor (commit 155b79d), whose
   same sequence pairs at the level of its internal alignment, and its protein tests are
   disabled (and take protein sequences), so they are not included.
 * data/description_extractor_results.json: 500 random sequence pairs (from
-  tools/compare_description_extractor.py --seed 1) for which description-extractor and variant_extractor give
+  tools/compare_description_extractor.py --seed 1) for which description-extractor and hgvs_extractor give
   the same description.  The tool reports where they differ: mostly where description-extractor joins
   separate changes in one delins, which HGVS describes separately.
 """
@@ -18,7 +18,7 @@ import pathlib
 import pytest
 from hgvs_apply import apply_nucleotide
 
-from variant_extractor import extract_variant_string
+from hgvs_extractor import extract_variant_string
 
 REFERENCE = "ACGTCGATTCGCTAGCTTCGGGGGATAGATAGAGATATAGAGAT"  # used by test5 to test18
 

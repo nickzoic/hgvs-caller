@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare variant_extractor with Mutalyzer's description-extractor on random sequence pairs.
+"""Compare hgvs_extractor with Mutalyzer's description-extractor on random sequence pairs.
 
 https://github.com/mutalyzer/description-extractor (C++ with a SWIG wrapper; it builds with
 Python 3.10, SWIG from PyPI, biopython and crossmapper-legacy, see the README of this
@@ -20,7 +20,7 @@ import re
 from extractor import describe_dna  # pylint: disable=import-error
 from hgvs_apply import apply_nucleotide, revcomp
 
-from variant_extractor import extract_variant_string
+from hgvs_extractor import extract_variant_string
 
 
 def mutate(rng: random.Random, seq: str) -> str:
@@ -157,7 +157,7 @@ def main():
         for ref, alt, theirs, ours in examples.get(key, []):
             print(f"            {ref} > {alt}")
             print(f"              description-extractor {theirs}")
-            print(f"              variant_extractor     {ours}")
+            print(f"              hgvs_extractor     {ours}")
     if args.save:
         with open(args.save, "w", encoding="utf-8") as out:  # one pair per line
             out.write("[\n" + ",\n".join(json.dumps(case) for case in agreed[: args.save_limit]) + "\n]\n")

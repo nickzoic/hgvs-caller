@@ -22,7 +22,7 @@ import pytest
 
 from hgvs_apply import AA1, apply_nucleotide, apply_protein, norm
 
-from variant_extractor import extract_variant_string
+from hgvs_extractor import extract_variant_string
 
 SPEC = "https://hgvs-nomenclature.org/stable/recommendations/"
 

@@ -1,12 +1,12 @@
 """Apply HGVS descriptions to a reference sequence.
 
-Written independently of variant_extractor, so tests can check that an extracted description
+Written independently of hgvs_extractor, so tests can check that an extracted description
 reproduces the variant sequence rather than comparing against the extractor's own logic.
 """
 
 import re
 
-from variant_extractor import translate
+from hgvs_extractor import translate
 
 COMPLEMENT = str.maketrans("ACGT", "TGCA")
 

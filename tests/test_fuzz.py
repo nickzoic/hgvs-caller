@@ -17,8 +17,8 @@ from hgvs_apply import apply_nucleotide, check_protein, revcomp
 from hypothesis import assume, given
 from hypothesis import strategies as st
 
-import variant_extractor.extractor as extractor_module
-from variant_extractor import TooManyVariationsException, extract_variant_string, extract_variants
+import hgvs_extractor.extractor as extractor_module
+from hgvs_extractor import TooManyVariationsException, extract_variant_string, extract_variants
 
 # --------------------------------------------------------------------------- grammar
 
