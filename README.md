@@ -2,9 +2,11 @@
 
 [![tests](https://github.com/nickzoic/hgvs_extractor/actions/workflows/tests.yml/badge.svg)](https://github.com/nickzoic/hgvs_extractor/actions/workflows/tests.yml)
 
-Extract [HGVS](https://hgvs-nomenclature.org/stable/) variant descriptions from two sequences:
-give it a reference and a variant nucleotide sequence, get back a description such as
-`c.20_23dup`, `r.775delinsga` or `p.Glu5ValfsTer5`.
+Extract [HGVS](https://hgvs-nomenclature.org/stable/) variant descriptions compared
+to a reference sequence.
+
+Pure Python, aims to be both fast and correct using all the examples documente in
+HGVS Nomenclature 21.1 and many more generated tests.
 
 ```python
 >>> from hgvs_extractor import extract_variant_string
@@ -13,10 +15,12 @@ give it a reference and a variant nucleotide sequence, get back a description su
 
 ```
 
+Features:
+
 - Genomic, coding, non-coding, mitochondrial, circular DNA and RNA descriptions
   (`g.`, `c.`, `n.`, `m.`, `o.`, `r.`) and the predicted protein consequence (`p.`).
 - Follows HGVS Nomenclature 21.1, and produces exactly the descriptions given by the
-  specification for all of its examples that show both the reference and the variant sequence.
+  specification for all of its worked examples.
 - No required dependencies; Python 3.10 or later.
 
 ## Installation
@@ -26,13 +30,25 @@ pip install hgvs_extractor           # pure Python
 pip install "hgvs_extractor[fast]"   # also installs rapidfuzz: faster for reads with several changes
 ```
 
-From a checkout of https://github.com/nickzoic/hgvs_extractor: `pip install .`
-(or `pip install -e ".[dev]"` for development).
+### Development
+
+Clone `https://github.com/nickzoic/hgvs_extractor`, create a virtual environment and run:
+
+```
+pip install -e .[dev]
+pytest
+```
 
 ## Usage
 
+Takes a prefix, a reference sequence, a variant sequence and an optional offset, and
+constructs an HGVS string which represents the variant.  The prefix can include a
+label for a reference sequence, eg: `NM_004006.2` to include in the output.
+Prefixes aren't checked or retrieved, just copied into the output, and a reference
+sequence must still be provided.
+
 ```python
->>> from hgvs_extractor import extract_variant_string, extract_variants
+>>> from hgvs_extractor import extract_variant_string
 
 ```
 
@@ -42,6 +58,8 @@ starting three bases before the start codon (`c.-3`) has `offset=-4`. Other coor
 at 1, so for them a negative `offset` raises `ValueError`.
 
 ```python
+>>> extract_variant_string("g.", "ATG", "CTG", offset=12345)
+'g.12346A>C'
 >>> extract_variant_string("g.", "TGTGATTCT", "TGTGTTCT", offset=33344586)
 'g.33344591del'
 >>> extract_variant_string("c.", "CCCATG", "CCGATG", offset=-4)
@@ -51,9 +69,9 @@ at 1, so for them a negative `offset` raises `ValueError`.
 
 ```
 
-The prefix may include the reference sequence; its last two characters select the coordinate
-type. Input may be upper or lower case, with `T` or `U`; `r.` descriptions are written in
-lower case with `u`:
+Input sequences may be upper or lower case, and use `T` or `U` interchangeably.
+Output descriptions with an `r.` prefix are written in lower case with `u`,
+other descriptions use upper case and `T`.
 
 ```python
 >>> extract_variant_string("r.", "aggcucauu", "aggcgacauu", offset=770)
@@ -61,15 +79,13 @@ lower case with `u`:
 
 ```
 
-Several changes are returned as an allele, no change as `=`:
+Multiple changes are returned as an allele, no change is returned as `=`:
 
 ```python
 >>> extract_variant_string("g.", "GATTACA", "GTTTAGA")
 'g.[2A>T;6C>G]'
 >>> extract_variant_string("g.", "GATTACA", "GATTACA")
 'g.='
->>> extract_variants("g.", "GATTACA", "GTTTAGA")
-['2A>T', '6C>G']
 
 ```
 
@@ -94,8 +110,28 @@ boundary at or after the start of `ref_seq` (with `offset=0`, `ref_seq` starts w
 
 ```
 
+Unchanged sequences are reported with `p.=`.  Synonymous variants are described with the codon location(s) and `=`:
+
+```python
+>>> extract_variant_string("p.", "ATGCAT", "ATGCAT")
+'p.='
+>>> extract_variant_string("p.", "ATGCAT", "ATGCAC")
+'p.His2='
+>>> extract_variant_string("p.", "ATGCATATAGAC", "ATGCACATAGAT")
+'p.[His2=;Asp4=]'
+
+```
+
 When the consequence lies beyond the end of the given sequence (for example a stop codon
 deleted at the end of the read), the result is `p.?`, "effect unknown".
+
+```python
+>>> extract_variant_string("p.", "ATGTAG", "ATGCAG")
+'p.Ter2GlnextTer?'
+>>> extract_variant_string("p.", "ATGTAG", "ATG")
+'p.?'
+
+```
 
 ### API
 
@@ -210,9 +246,13 @@ coverage; a longer fuzz run; linting; and a test of the built package. They incl
   results on random sequence pairs (see below); all give the same description.
 - the doctests in the package and in this README.
 
-Two examples from the specification are not included: the exon/intron junction examples
-(their sequences are not contiguous), and `c.-23A>T` from the protein Extension Q&A, whose
-sequence shows a `G>T` change (`CAGGGT` to `CATGGT`), i.e. `c.-23G>T`.
+Two examples from the specification are not included:
+
+* the exon/intron junction examples (their sequences are not contiguous)
+* the `p.(Met1ext-8)` example from [Protein Extension](https://hgvs-nomenclature.org/stable/recommendations/protein/extension/)
+    ... when generating protein descriptions this library assumes that the sequences begin in
+    translated regions with correct frame, and does not accept
+    negative offsets when generating protein descriptions.
 
 ### Comparison with Mutalyzer's description-extractor
 
@@ -224,37 +264,36 @@ description-extractor built: Python 3.10, SWIG from PyPI, biopython and
 |-------|-|
 | 74.0% | the same description |
 | 17.9% | description-extractor joins separate changes in one delins (`32_41delinsTCCCAT` for `[32_33del;36_38del;43dup]`); HGVS describes changes separated by one or more nucleotides individually |
-| 7.0%  | both correct, different alignment: description-extractor minimizes the length of the description, hgvs_extractor edits plus changes (see Method) |
+| 7.0%  | both correct, different alignment: description-extractor minimizes the length of the description, hgvs\_extractor edits plus changes (see Method) |
 | 0.8%  | description-extractor's description does not give the variant sequence (e.g. an inversion one base out) |
 | 0.3%  | description-extractor uses a position outside the reference (`0_1insAATAC`) |
 
-Every description from hgvs_extractor gave the variant sequence. Where both are correct and
-description-extractor does not join separate changes, scored by hgvs_extractor's measure (edits plus changes,
-then edits): hgvs_extractor's description costs less for 1574 pairs, the same for 235, and more
+Every description from hgvs\_extractor gave the variant sequence. Where both are correct and
+description-extractor does not join separate changes, scored by hgvs\_extractor's measure (edits plus changes,
+then edits): hgvs\_extractor's description costs less for 1574 pairs, the same for 235, and more
 for 13, all with several inversions close together.
 
 ## Benchmark
 
-[BENCHMARK.md](BENCHMARK.md) compares hgvs_extractor with countess-variant-caller, Mutalyzer 2's
+[BENCHMARK.md](BENCHMARK.md) compares hgvs\_extractor with countess-variant-caller, Mutalyzer 2's
 description-extractor, Mutalyzer 3's description extractor and mutalyzer-algebra on 7063 cases
 (`tools/benchmark.py`). In brief, on 5000 random short sequence pairs:
 
 | tool | correct, valid HGVS | correct, positions outside the reference | wrong | time per pair |
 |---|---|---|---|---|
-| hgvs_extractor | 100% | 0% | 0% | 164 µs |
+| hgvs\_extractor | 100% | 0% | 0% | 164 µs |
 | countess-variant-caller | 92.7% | 4.3% | 2.9% | 7 µs |
 | Mutalyzer 2 description-extractor | 95.9% | 3.3% | 0.8% | 38 µs |
-| Mutalyzer 3 description_extractor | 96.7% | 3.3% | 0% | 125 µs |
+| Mutalyzer 3 description\_extractor | 96.7% | 3.3% | 0% | 125 µs |
 | mutalyzer-algebra | 95.7% | 4.3% | 0% | 112 µs |
 
-hgvs_extractor also gave the HGVS specification's description for the most of its examples
-(24 of 25, against 19 for Mutalyzer). countess-variant-caller is the fastest; hgvs_extractor
+countess-variant-caller is the fastest; hgvs\_extractor
 is about as fast as Mutalyzer 2's C++ (faster for one change, and on 10 kb sequences).
 
 ## Origin
 
 This code was written almost entirely by [Claude](https://claude.ai/) and I'm not pretending
-otherwise.  The prompts I gave it were (approximately):
+otherwise.  The prompts I gave it at the start were:
 
 > extract all the examples from the HGVS specification site at https://hgvs-nomenclature.org/stable/
 > which show a sequence variation and its HGVS description and build a python list of tuples
@@ -267,6 +306,9 @@ otherwise.  The prompts I gave it were (approximately):
 > the variant.  The function should pass all the tests above.
 >
 > make this into a python package with a README.md, pyproject.toml and make the tests run under pytest.
+
+I'd also asked it to test [countess-variant-caller](https://github.com/CountESS-Project/countess-variant-caller/)
+and it's clearly been influenced by that code in generating this new implementation.
 
 ## Licence
 
