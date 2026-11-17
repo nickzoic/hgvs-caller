@@ -30,8 +30,8 @@ test = ["pytest>=7", "pytest-cov>=5", "hypothesis>=6.100"]
 dev = ["variant_extractor[fast,test]", "black>=24", "pylint>=3", "mypy>=1.8"]
 
 [project.urls]
-Repository = "https://github.com/nickzoic/hgvs-caller"
-Issues = "https://github.com/nickzoic/hgvs-caller/issues"
+Repository = "https://github.com/nickzoic/variant-extractor"
+Issues = "https://github.com/nickzoic/variant-extractor/issues"
 "HGVS Nomenclature" = "https://hgvs-nomenclature.org/stable/"
 
 [tool.setuptools.dynamic]
