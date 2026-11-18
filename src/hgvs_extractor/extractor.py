@@ -28,15 +28,25 @@ descriptions of uncertain positions.
 
 import heapq
 import re
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
-# optional: edit distance in C, used only to size the alignment band; with score_cutoff it
-# returns cutoff + 1 for a larger distance, and is faster for a small cutoff
-_edit_distance: Optional[Callable[..., int]]
+# optional, from rapidfuzz: the edit distance (used to size the alignment band; with score_cutoff
+# it returns cutoff + 1 for a larger distance, and is faster for a small cutoff) and the opcodes
+# of an alignment (used for short regions, where it is faster than _align_edits)
 try:
-    from rapidfuzz.distance.Levenshtein import distance as _edit_distance
+    from rapidfuzz.distance import Levenshtein as _levenshtein
 except ImportError:  # pragma: no cover
-    _edit_distance = None
+    _levenshtein = None  # type: ignore[assignment]
+_edit_distance: Optional[Callable[..., int]] = _levenshtein.distance if _levenshtein else None
+_opcodes: Optional[Callable[[str, str], Any]] = _levenshtein.opcodes if _levenshtein else None
+
+# Regions up to this long are aligned with rapidfuzz when it is installed. Measured: rapidfuzz is
+# faster than _align_edits for every region of up to 3000 bases tested (1, 3 and 10 changes), and
+# 2.7 times faster for a 300 bp read with three changes. Longer regions depend on the number of
+# changes, and _align_edits (which skips unchanged stretches) is faster for long regions with
+# few changes, so those use _align_edits. The two break ties differently, so descriptions can
+# differ according to whether rapidfuzz is installed.
+RAPIDFUZZ_MAX_REGION = 3000
 
 __all__ = [
     "extract_variants",
@@ -122,6 +132,34 @@ def _initial_width(ref: str, alt: str) -> int:
     if distance > 64 and widest > 64:
         distance = _edit_distance(ref, alt, score_cutoff=widest)
     return max(1, distance)
+
+
+def _ops_from_opcodes(ref: str, alt: str) -> list[str]:
+    """operations in the reverse order of _align_edits, from rapidfuzz's opcodes"""
+    forward = []
+    for tag, i1, i2, j1, j2 in _opcodes(ref, alt):  # type: ignore[misc]
+        if tag == "equal":
+            forward.append("=" * (i2 - i1))
+        elif tag == "replace":
+            substituted = min(i2 - i1, j2 - j1)
+            forward.append("X" * substituted + "D" * (i2 - i1 - substituted) + "I" * (j2 - j1 - substituted))
+        elif tag == "delete":
+            forward.append("D" * (i2 - i1))
+        else:
+            forward.append("I" * (j2 - j1))
+    return list("".join(forward)[::-1])
+
+
+def _align_region(ref: str, alt: str) -> list[str]:
+    """Operations (in reverse order) for a changed region: rapidfuzz's alignment for a short
+    region when rapidfuzz is installed, otherwise _align_edits. A region too different to align
+    in the band is one change, as for _align_edits, found from the edit distance."""
+    if _opcodes is None or _edit_distance is None or max(len(ref), len(alt)) > RAPIDFUZZ_MAX_REGION:
+        return _align_edits(ref, alt)
+    distance = _edit_distance(ref, alt)
+    if (len(ref) + 1) * (abs(len(alt) - len(ref)) + 2 * distance + 1) > MAX_ALIGNMENT_CELLS:
+        raise _RegionTooDifferent
+    return _ops_from_opcodes(ref, alt)
 
 
 def _run_length(x: str, i: int, y: str, j: int, limit: int) -> int:
@@ -336,7 +374,9 @@ def _common_length(x: str, y: str, limit: int, from_end: bool) -> int:
 _EDITS = re.compile(r"[XDI]+")
 
 
-def _blocks(ref: str, alt: str, inversions: bool, align=_align_edits) -> list[list[int]]:
+def _blocks(
+    ref: str, alt: str, inversions: bool, align: Optional[Callable[[str, str], list[str]]] = None
+) -> list[list[int]]:
     """Changed regions between ref and alt as [ref_start, ref_end, alt_start, alt_end]
     (python-style half-open ranges), in order.
 
@@ -357,7 +397,7 @@ def _blocks(ref: str, alt: str, inversions: bool, align=_align_edits) -> list[li
         return single
 
     try:
-        ops = align(r_mid, a_mid)
+        ops = (align or _align_region)(r_mid, a_mid)
     except _RegionTooDifferent:
         return single
     # runs of edits are the changes; matches before a run move both sequences on

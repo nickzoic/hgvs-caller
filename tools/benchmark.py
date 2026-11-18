@@ -43,9 +43,10 @@ def _hgvs_extractor(rapidfuzz: bool) -> tuple[Extractor, str]:
     import hgvs_extractor.extractor as module
     from hgvs_extractor import extract_variant_string
 
-    if not rapidfuzz:
+    if not rapidfuzz:  # the distance and the alignment of short regions both come from rapidfuzz
         module._edit_distance = None
-    elif module._edit_distance is None:
+        module._opcodes = None
+    elif module._edit_distance is None or module._opcodes is None:
         raise ImportError("rapidfuzz is not installed")
     return (lambda ref, alt: extract_variant_string("g.", ref, alt)[2:]), importlib.metadata.version("hgvs_extractor")
 
