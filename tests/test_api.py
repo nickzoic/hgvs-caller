@@ -227,7 +227,8 @@ def test_long_sequence_with_scattered_changes():
 def test_too_different_to_align(aligner, monkeypatch):
     """when the alignment band would be too large, the region is one change"""
     # pylint: disable=protected-access
-    monkeypatch.setattr(hgvs_extractor.extractor, "_edit_distance", lambda ref, alt, score_cutoff: score_cutoff + 1)
+    monkeypatch.setattr(hgvs_extractor.extractor, "_opcodes", None)  # the banded path, not rapidfuzz
+    monkeypatch.setattr(hgvs_extractor.extractor, "_edit_distance", lambda ref, alt, score_cutoff=None: 10_000)
     rng = random.Random(11)
     ref, alt = "".join(rng.choices("ACGT", k=1000)), "".join(rng.choices("ACGT", k=1000))
     with pytest.raises(hgvs_extractor.extractor._RegionTooDifferent):
@@ -240,10 +241,11 @@ def test_many_changes(monkeypatch):
     step; one below it in the first"""
     calls, answer = [], {"distance": 100}
 
-    def distance(_ref, _alt, score_cutoff):  # as rapidfuzz's, for any environment
+    def distance(_ref, _alt, score_cutoff=None):  # as rapidfuzz's, for any environment
         calls.append(score_cutoff)
-        return min(answer["distance"], score_cutoff + 1)
+        return min(answer["distance"], score_cutoff + 1) if score_cutoff is not None else answer["distance"]
 
+    monkeypatch.setattr(hgvs_extractor.extractor, "_opcodes", None)  # the banded path, not rapidfuzz
     monkeypatch.setattr(hgvs_extractor.extractor, "_edit_distance", distance)
     rng = random.Random(12)
     ref = "".join(rng.choices("ACGT", k=500))
@@ -257,3 +259,41 @@ def test_many_changes(monkeypatch):
     answer["distance"] = 1
     assert extract_variant_string("g.", "GATTACA", "GATGACA") == "g.4T>G"
     assert calls == [64]
+
+
+def test_short_regions_use_rapidfuzz_when_installed(monkeypatch):
+    """a short changed region is aligned by rapidfuzz when it is installed, a long one by the
+    banded alignment; without rapidfuzz, always the banded alignment"""
+    # pylint: disable=protected-access
+    calls = []
+    real = hgvs_extractor.extractor._opcodes
+    if real is None:
+        pytest.skip("rapidfuzz not installed")
+
+    def spy(ref, alt):
+        calls.append(len(ref))
+        return real(ref, alt)
+
+    monkeypatch.setattr(hgvs_extractor.extractor, "_opcodes", spy)
+    rng = random.Random(13)
+    short = "".join(rng.choices("ACGT", k=300))
+    assert extract_variant_string("g.", short, short[:100] + "T" + short[101:]).startswith("g.101")
+    assert calls == [1]
+    # the changed region itself is longer than the limit (the limit is on the region, not the read)
+    middle = hgvs_extractor.extractor.RAPIDFUZZ_MAX_REGION + 500
+    long_ref = short[:100] + "".join(rng.choices("ACGT", k=middle)) + short[100:]
+    long_alt = short[:100] + "".join(rng.choices("ACGT", k=middle)) + short[100:]
+    extract_variant_string("g.", long_ref, long_alt)
+    assert calls == [1]  # not called for the long region
+    monkeypatch.setattr(hgvs_extractor.extractor, "_opcodes", None)
+    extract_variant_string("g.", short, short[:100] + "T" + short[101:])
+    assert calls == [1]
+
+
+def test_rapidfuzz_path_too_different_is_one_change(monkeypatch):
+    """the rapidfuzz path describes a region too different for the band as one change, as the
+    banded path does"""
+    monkeypatch.setattr(hgvs_extractor.extractor, "_edit_distance", lambda ref, alt, score_cutoff=None: 10_000)
+    rng = random.Random(14)
+    ref, alt = "".join(rng.choices("ACGT", k=1000)), "".join(rng.choices("ACGT", k=1000))
+    assert extract_variant_string("g.", ref, alt).startswith("g.1_1000delins")
