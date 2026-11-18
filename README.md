@@ -165,17 +165,24 @@ edits. So a deletion is not split around a matching base, and a stretch of many 
 can become one larger change. Each cluster is also searched for an inversion (counted as two
 edits, one per breakpoint), which is used where it costs less by the same measure, e.g.
 `[26_29inv;30C>G]` rather than `[25_26insCC;29_30del]`. The changes are then merged per the
-rules above, shifted 3', and classified. If `rapidfuzz` is installed it is used to compute the
-edit distance that sizes the band; the results are the same with or without it.
+rules above, shifted 3', and classified. If `rapidfuzz` is installed it is also used to compute
+the edit distance that sizes the band (the band's results do not depend on it), and to align
+short changed regions (up to 3000 bases) in place of the banded alignment, which is then about
+2.5 times faster for reads with several changes. Both alignments use the fewest edits but break
+ties differently, so a few descriptions can differ according to whether rapidfuzz is installed:
+3 of 5000 random short pairs in the benchmark, and none of the specification examples,
+description-extractor's test cases, reads or 10 kb sequences. Every description from either
+mode is correct and valid.
 
 Typical cost per read on a 300 bp amplicon:
 
-| changes in the read     | `g.`, with rapidfuzz | `g.`, pure Python | `p.`     |
-|-------------------------|----------------------|-------------------|----------|
-| one                     | 14 µs                | 19 µs             | 9-11 µs  |
-| three, far apart        | 131 µs               | 201 µs            | 17-18 µs |
+| changes in the read     | `g.`, with rapidfuzz | `g.`, pure Python | `p.`, with rapidfuzz | `p.`, pure Python |
+|-------------------------|----------------------|-------------------|----------------------|-------------------|
+| one                     | 15 µs                | 17 µs             | 10 µs                | 8 µs              |
+| three, far apart        | 59 µs                | 214 µs            | 11 µs                | 21 µs             |
 
-A 10 kb sequence with five changes far apart takes about 0.7 ms with rapidfuzz, 1 ms without.
+A 10 kb sequence with five changes far apart takes about 0.9 ms with rapidfuzz and 1.0 ms
+without (the banded alignment is used for it either way).
 
 ## Tests
 
@@ -230,8 +237,8 @@ description-extractor built: Python 3.10, SWIG from PyPI, biopython and
 
 Every description from hgvs_extractor gave the variant sequence. Where both are correct and
 description-extractor does not join separate changes, scored by hgvs_extractor's measure (edits plus changes,
-then edits): hgvs_extractor's description costs less for 1574 pairs, the same for 235, and more
-for 13, all with several inversions close together.
+then edits): hgvs_extractor's description costs less for 1575 pairs, the same for 235, and more
+for 11, all with several inversions close together.
 
 ## Benchmark
 
@@ -241,15 +248,16 @@ description-extractor, Mutalyzer 3's description extractor and mutalyzer-algebra
 
 | tool | correct, valid HGVS | correct, positions outside the reference | wrong | time per pair |
 |---|---|---|---|---|
-| hgvs_extractor | 100% | 0% | 0% | 164 µs |
+| hgvs_extractor | 100% | 0% | 0% | 140 µs (226 µs pure Python) |
 | countess-variant-caller | 92.7% | 4.3% | 2.9% | 7 µs |
 | Mutalyzer 2 description-extractor | 95.9% | 3.3% | 0.8% | 38 µs |
 | Mutalyzer 3 description_extractor | 96.7% | 3.3% | 0% | 125 µs |
 | mutalyzer-algebra | 95.7% | 4.3% | 0% | 112 µs |
 
 hgvs_extractor also gave the HGVS specification's description for the most of its examples
-(24 of 25, against 19 for Mutalyzer). countess-variant-caller is the fastest; hgvs_extractor
-is about as fast as Mutalyzer 2's C++ (faster for one change, and on 10 kb sequences).
+(24 of 25, against 19 for Mutalyzer). countess-variant-caller is the fastest. hgvs_extractor is
+faster than Mutalyzer 2's C++ for one change (15 against 22 µs) and three changes (59 against
+89 µs), and about the same on 10 kb sequences (0.86 against 0.75 ms).
 
 ## Origin
 
