@@ -5,6 +5,9 @@
 Extract an [HGVS](https://hgvs-nomenclature.org/stable/) description of a variant
 compared to a reference sequence.
 
+Pure Python, aims to be both fast and correct using all the examples documente in
+HGVS Nomenclature 21.1 and many more generated tests.
+
 ```python
 >>> from hgvs_extractor import extract_variant_string
 >>> extract_variant_string("c.", "AGAAGTAGAGG", "AGAAGTAGATAGAGG", offset=14)
@@ -17,7 +20,7 @@ Features:
 - Genomic, coding, non-coding, mitochondrial, circular DNA and RNA descriptions
   (`g.`, `c.`, `n.`, `m.`, `o.`, `r.`) and the predicted protein consequence (`p.`).
 - Follows HGVS Nomenclature 21.1, and produces exactly the descriptions given by the
-  specification for all of its examples that show both the reference and the variant sequence.
+  specification for all of its worked examples.
 - No required dependencies; Python 3.10 or later.
 
 ## Installation
@@ -30,11 +33,19 @@ pip install "hgvs_extractor[fast]"   # also installs rapidfuzz: faster for reads
 ### Development
 
 Clone `https://github.com/nickzoic/hgvs_extractor`, create a virtual environment and run:
-```
+
+```sh
 pip install -e .[dev]
+pytest
 ```
 
 ## Usage
+
+Takes a prefix, a reference sequence, a variant sequence and an optional offset, and
+constructs an HGVS string which represents the variant.  The prefix can include a
+label for a reference sequence, eg: `NM_004006.2` to include in the output.
+Prefixes aren't checked or retrieved, just copied into the output, and a reference
+sequence must still be provided.
 
 ```python
 >>> from hgvs_extractor import extract_variant_string
@@ -47,6 +58,8 @@ starting three bases before the start codon (`c.-3`) has `offset=-4`. Other coor
 at 1, so for them a negative `offset` raises `ValueError`.
 
 ```python
+>>> extract_variant_string("g.", "ATG", "CTG", offset=12345)
+'g.12346A>C'
 >>> extract_variant_string("g.", "TGTGATTCT", "TGTGTTCT", offset=33344586)
 'g.33344591del'
 >>> extract_variant_string("c.", "CCCATG", "CCGATG", offset=-4)
@@ -56,9 +69,9 @@ at 1, so for them a negative `offset` raises `ValueError`.
 
 ```
 
-The prefix may include the reference sequence; its last two characters select the coordinate
-type. Input may be upper or lower case, with `T` or `U`; `r.` descriptions are written in
-lower case with `u`:
+Input sequences may be upper or lower case, and use `T` or `U` interchangeably.
+Output descriptions with an `r.` prefix are written in lower case with `u`,
+other descriptions use upper case and `T`.
 
 ```python
 >>> extract_variant_string("r.", "aggcucauu", "aggcgacauu", offset=770)
@@ -66,7 +79,7 @@ lower case with `u`:
 
 ```
 
-Several changes are returned as an allele, no change as `=`:
+Multiple changes are returned as an allele, no change is returned as `=`:
 
 ```python
 >>> extract_variant_string("g.", "GATTACA", "GTTTAGA")
@@ -97,8 +110,28 @@ boundary at or after the start of `ref_seq` (with `offset=0`, `ref_seq` starts w
 
 ```
 
+Unchanged sequences are reported with `p.=`.  Synonymous variants are described with the codon location(s) and `=`:
+
+```python
+>>> extract_variant_string("p.", "ATGCAT", "ATGCAT")
+'p.='
+>>> extract_variant_string("p.", "ATGCAT", "ATGCAC")
+'p.His2='
+>>> extract_variant_string("p.", "ATGCATATAGAC", "ATGCACATAGAT")
+'p.[His2=;Asp4=]'
+
+```
+
 When the consequence lies beyond the end of the given sequence (for example a stop codon
 deleted at the end of the read), the result is `p.?`, "effect unknown".
+
+```python
+>>> extract_variant_string("p.", "ATGTAG", "ATGCAG")
+'p.Ter2GlnextTer?'
+>>> extract_variant_string("p.", "ATGTAG", "ATG")
+'p.?'
+
+```
 
 ### API
 
@@ -225,9 +258,13 @@ coverage; a longer fuzz run; linting; and a test of the built package. They incl
   results on random sequence pairs (see below); all give the same description.
 - the doctests in the package and in this README.
 
-Two examples from the specification are not included: the exon/intron junction examples
-(their sequences are not contiguous), and [`c.-23A>T` from the protein Extension Q&A](https://github.com/HGVSnomenclature/hgvs-nomenclature/issues/286),
-whose sequence shows a `G>T` change (`CAGGGT` to `CATGGT`), i.e. `c.-23G>T`.
+Two examples from the specification are not included:
+
+* the exon/intron junction examples (their sequences are not contiguous)
+* the `p.(Met1ext-8)` example from [Protein Extension](https://hgvs-nomenclature.org/stable/recommendations/protein/extension/)
+    ... when generating protein descriptions this library assumes that the sequences begin in
+    translated regions with correct frame, and does not accept
+    negative offsets when generating protein descriptions.
 
 ### Comparison with Mutalyzer's description-extractor
 
@@ -271,7 +308,7 @@ faster than Mutalyzer 2's C++ for one change (15 against 22 µs) and three chang
 ## Origin
 
 This code was written almost entirely by [Claude](https://claude.ai/) and I'm not pretending
-otherwise.  The prompts I gave it were (approximately):
+otherwise.  The prompts I gave it at the start were:
 
 > extract all the examples from the HGVS specification site at https://hgvs-nomenclature.org/stable/
 > which show a sequence variation and its HGVS description and build a python list of tuples
@@ -284,6 +321,9 @@ otherwise.  The prompts I gave it were (approximately):
 > the variant.  The function should pass all the tests above.
 >
 > make this into a python package with a README.md, pyproject.toml and make the tests run under pytest.
+
+I'd also asked it to test [countess-variant-caller](https://github.com/CountESS-Project/countess-variant-caller/)
+and it's clearly been influenced by that code in generating this new implementation.
 
 ## Licence
 

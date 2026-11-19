@@ -133,6 +133,12 @@ EXAMPLES = [
         "protein/frameshift/",
         {"fs_short": True},
     ),
+    # the 5' UTR example doesn't actually work for protein extraction because we assume
+    # comparison starts in the translated region and frame (and there's not currently
+    # any support for parentheticals either)
+    ("c.-23G>T", "dna", "CAGGGT", "CATGGT", -26, "protein/extension/", {}),
+    ("r.-23g>u", "rna", "CAGGGT", "CATGGT", -26, "protein/extension/", {}),
+    # ("p.(Met1ext-8)", "dna-protein", "CAGGGT", "CATGGT", -26, "protein/extension/", {}),
 ]
 
 CODON_FOR = {
