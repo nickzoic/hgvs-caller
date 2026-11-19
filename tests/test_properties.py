@@ -11,6 +11,7 @@ For random reference sequences and random changes, check that:
 Set HGVS_EXTRACTOR_PROPERTY_CASES to change the number of random cases per test.
 """
 
+import difflib
 import os
 import random
 import re
@@ -208,8 +209,71 @@ def test_banded_alignment_equals_full_alignment(aligner, use_rapidfuzz, monkeypa
 
 
 def test_round_trip_without_rapidfuzz(monkeypatch):
-    """results do not depend on whether rapidfuzz is installed"""
+    """without rapidfuzz (distance and opcodes), descriptions still reproduce the variant"""
     monkeypatch.setattr(extractor_module, "_edit_distance", None)
+    monkeypatch.setattr(extractor_module, "_opcodes", None)
     for kind, ref, alt, offset, merge in nucleotide_cases(7):
-        extracted = extract_variant_string(kind + ".", ref, alt, offset=offset, merge_one_nt=merge)
-        assert apply_nucleotide(extracted, ref, offset) == alt, (ref, alt, offset, extracted)
+        called = extract_variant_string(kind + ".", ref, alt, offset=offset, merge_one_nt=merge)
+        assert apply_nucleotide(called, ref, offset) == alt, (ref, alt, offset, called)
+
+
+def test_rapidfuzz_opcodes_are_optimal():
+    """the operations from rapidfuzz's opcodes use as few edits as _align_edits, and the changes
+    they give rebuild the variant (the tie-breaking may differ from _align_edits)"""
+    # pylint: disable=protected-access
+    if extractor_module._opcodes is None:
+        pytest.skip("rapidfuzz not installed")
+    rng = random.Random(15)
+    for n in range(CASES):
+        ref = "".join(rng.choices("ACGT" if n % 2 else "AT", k=rng.randint(1, 80)))
+        alt = mutate(rng, ref)
+        ours = extractor_module._align_edits(ref, alt)
+        theirs = extractor_module._ops_from_opcodes(ref, alt)
+        assert sum(op != "=" for op in ours) == sum(op != "=" for op in theirs), (ref, alt)
+        rebuilt, pos = [], 0
+        for start, end, new in (
+            (b[0], b[1], alt[b[2] : b[3]])
+            for b in extractor_module._blocks(ref, alt, False, extractor_module._ops_from_opcodes)
+        ):
+            rebuilt.append(ref[pos:start] + new)
+            pos = end
+        rebuilt.append(ref[pos:])
+        assert "".join(rebuilt) == alt, (ref, alt)
+
+
+def _rebuild(ref, alt, blocks):
+    """the variant sequence that a list of blocks gives (each block: ref range, alt range)"""
+    rebuilt, pos = [], 0
+    for start, end, a_start, a_end in blocks:
+        rebuilt.append(ref[pos:start] + alt[a_start:a_end])
+        pos = end
+    return "".join(rebuilt) + ref[pos:]
+
+
+def _plain_distance(x, y):
+    """the Levenshtein distance by dynamic programming (independent of the extractor)"""
+    row = list(range(len(y) + 1))
+    for i, xc in enumerate(x, 1):
+        prev, row = row, [i] + [0] * len(y)
+        for j, yc in enumerate(y, 1):
+            row[j] = min(prev[j - 1] + (xc != yc), prev[j] + 1, row[j - 1] + 1)
+    return row[-1]
+
+
+def test_rapidfuzz_path_with_stand_ins(monkeypatch):
+    """the rapidfuzz path, with stand-ins for rapidfuzz (difflib's opcodes and the exact edit
+    distance), so that it is covered and tested in environments without rapidfuzz"""
+    # pylint: disable=protected-access
+    monkeypatch.setattr(
+        extractor_module, "_opcodes", lambda r, a: difflib.SequenceMatcher(None, r, a, autojunk=False).get_opcodes()
+    )
+    monkeypatch.setattr(extractor_module, "_edit_distance", lambda r, a, score_cutoff=None: _plain_distance(r, a))
+    rng = random.Random(16)
+    for n in range(CASES):
+        ref = "".join(rng.choices("ACGT" if n % 2 else "AT", k=rng.randint(1, 80)))
+        alt = mutate(rng, ref)
+        blocks = extractor_module._blocks(ref, alt, False)
+        assert _rebuild(ref, alt, blocks) == alt, (ref, alt)
+    monkeypatch.setattr(extractor_module, "_edit_distance", lambda r, a, score_cutoff=None: 10_000)
+    with pytest.raises(extractor_module._RegionTooDifferent):
+        extractor_module._align_region("ACGT" * 50, "TGCA" * 50)

@@ -22,6 +22,7 @@ import argparse
 import collections
 import importlib.metadata
 import json
+import os
 import platform
 import random
 import re
@@ -43,9 +44,10 @@ def _hgvs_extractor(rapidfuzz: bool) -> tuple[Extractor, str]:
     import hgvs_extractor.extractor as module
     from hgvs_extractor import extract_variant_string
 
-    if not rapidfuzz:
+    if not rapidfuzz:  # the distance and the alignment of short regions both come from rapidfuzz
         module._edit_distance = None
-    elif module._edit_distance is None:
+        module._opcodes = None
+    elif module._edit_distance is None or module._opcodes is None:
         raise ImportError("rapidfuzz is not installed")
     return (lambda ref, alt: extract_variant_string("g.", ref, alt)[2:]), importlib.metadata.version("hgvs_extractor")
 
@@ -82,7 +84,23 @@ def _algebra() -> tuple[Extractor, str]:
     )
 
 
+def _varsim() -> tuple[Extractor, str]:
+    """VarSim's extract_with_positions, built from its source (varsim 2.0.1); it reads an
+    e-mail address at import time, which its extraction does not use"""
+    os.environ.setdefault("EMAIL", "benchmark@example.invalid")
+    # pylint: disable=import-outside-toplevel,import-error
+    from varsim.extractor import extract_with_positions
+
+    def extract(ref: str, alt: str) -> str:
+        if ref == alt:  # VarSim raises ValueError for identical sequences
+            return "="
+        return extract_with_positions(ref, alt, start_pos=1, prefix="g.")[2:]
+
+    return extract, importlib.metadata.version("varsim")
+
+
 TOOLS: dict[str, Callable[[], tuple[Extractor, str]]] = {
+    "VarSim extract_with_positions": _varsim,
     "hgvs_extractor": lambda: _hgvs_extractor(True),
     "hgvs_extractor (pure Python)": lambda: _hgvs_extractor(False),
     "countess-variant-caller": _countess,

@@ -7,11 +7,12 @@ two sequences, so they are not included.)
 
 | tool | version | method | language |
 |---|---|---|---|
-| hgvs_extractor | 0.1.0 | fewest-edits banded alignment, clusters realigned with an affine gap cost, inversion search | Python (optional rapidfuzz) |
+| hgvs_extractor | 0.1.0 | fewest-edits banded alignment (rapidfuzz for regions up to 3000 bases, when installed), clusters realigned with an affine gap cost, inversion search | Python (optional rapidfuzz) |
 | [countess-variant-caller](https://github.com/CountESS-Project/countess-variant-caller) | 0.1.1 | rapidfuzz Levenshtein opcodes | Python, rapidfuzz (C++) |
 | Mutalyzer 2 [description-extractor](https://github.com/mutalyzer/description-extractor) | git 155b79d | shortest description by weights (Vis et al., Bioinformatics 2015) | C++ with a Python wrapper |
 | Mutalyzer 3 `mutalyzer.description_extractor` | mutalyzer 3.1.1 | description-extractor 3.0.0 and Mutalyzer 3's description model | C++ and Python |
 | [mutalyzer-algebra](https://github.com/mutalyzer/algebra) `extract_sequence` | 1.5.2 | graph of all minimal alignments (Santcroos et al., 2025) | Python |
+| [VarSim](https://github.com/liu-sun/VarSim) `extract_with_positions` | 2.0.1 (commit 045fff3) | diff of the first and last differing bases (one delins for all changes between them) | Python (Biopython) |
 
 ## Method
 
@@ -49,16 +50,17 @@ PYTHONPATH=src:tests:tools python tools/benchmark.py report results/*.json
 ## Summary
 
 * **Correctness.** hgvs_extractor gave a correct, valid description in every one of the 7063
-  cases. Mutalyzer 3 and mutalyzer-algebra were always correct, but 3.3% and 4.3% of their
-  descriptions of the random pairs use positions outside the reference: an insertion before the first base
-  (`0_1insC`) or after the last (`7_8insG` for a 7-base reference), where HGVS has no flanking
-  position (hgvs_extractor writes a delins of the first or last base). Mutalyzer 2 also gave
-  41 wrong descriptions (0.8%; fixed in the description-extractor 3 used by Mutalyzer 3).
-  countess-variant-caller gave 147 wrong descriptions of the random pairs (2.9%), and 11 of the
-  1000 reads with three changes, e.g. `[128_129insT;128_129dup;...]` for `128_129insTGA`.
-* **The HGVS specification.** hgvs_extractor gave the specification's description for 24 of
-  the 25 examples; the other, `r.775_777delinsc`, needs `r.` coordinates (here all tools get `g.`;
-  with `r.` it gives the specification's description). Mutalyzer 2 and 3 gave 19,
+  cases, with rapidfuzz and in pure Python. Mutalyzer 3 and mutalyzer-algebra were always correct,
+  but 3.3% and 4.3% of their descriptions of the random pairs use positions outside the reference:
+  an insertion before the first base (`0_1insC`) or after the last (`7_8insG` for a 7-base
+  reference), where HGVS has no flanking position (hgvs_extractor writes a delins of the first or
+  last base). Mutalyzer 2 also gave 41 wrong descriptions (0.8%; fixed in the description-extractor 3
+  used by Mutalyzer 3). countess-variant-caller gave 147 wrong descriptions of the random pairs
+  (2.9%), and 11 of the 1000 reads with three changes, e.g. `[128_129insT;128_129dup;...]` for
+  `128_129insTGA`.
+* **The HGVS specification.** hgvs_extractor gave the specification's description for 24 of the 25
+  examples, in both modes; the other, `r.775_777delinsc`, needs `r.` coordinates (here all tools get
+  `g.`; with `r.` it gives the specification's description). Mutalyzer 2 and 3 gave 19,
   mutalyzer-algebra 14 (it prefers repeat notation, e.g. `2_7AT[4]` for `6_7dup`) and
   countess-variant-caller 13.
 * **Description size.** Mutalyzer 2 and 3 use the fewest changes (1.70 per random pair, against
@@ -66,10 +68,23 @@ PYTHONPATH=src:tests:tools python tools/benchmark.py report results/*.json
   bases into one delins, which HGVS describes separately (see "Comparison with Mutalyzer's
   description-extractor" in the README).
 * **Speed.** countess-variant-caller is the fastest (5-12 µs per read), with its alignment in
-  compiled code. hgvs_extractor, in Python, takes 14 µs for a 300 bp read with one change
-  (Mutalyzer 2: 22 µs), 131 µs with three (Mutalyzer 2: 89 µs, Mutalyzer 3: 267 µs) and 0.7 ms
-  for 10 kb with five changes (Mutalyzer 2: 0.75 ms, Mutalyzer 3: 0.93 ms, mutalyzer-algebra:
-  19 ms), as it skips the unchanged stretches between changes.
+  compiled code. hgvs_extractor takes 15 µs for a 300 bp read with one change (Mutalyzer 2: 22 µs),
+  59 µs with three (rapidfuzz; pure Python 214 µs; Mutalyzer 2: 89 µs, Mutalyzer 3: 267 µs), and
+  0.86 ms for 10 kb with five changes (Mutalyzer 2: 0.75 ms, Mutalyzer 3: 0.93 ms, mutalyzer-algebra:
+  19 ms). Single-run timings vary by about 15% between runs.
+* **Two modes.** With rapidfuzz installed, changed regions of up to 3000 bases are aligned by
+  rapidfuzz; without it, by the banded aligner. The two give the same number of edits, and they
+  differ in 3 of the 5000 random short pairs (both correct and valid); none of the other datasets
+  differ.
+* **VarSim** (2.0.1, built from its repository). Its extraction is correct, in that its descriptions
+  give the observed sequence in every case, but it is much less specific. It writes all the changes
+  between the first and last differing bases as one delin, so the three-change reads come out at 159
+  characters against 25 for us. It never writes `dup` or `inv` (duplications become insertions,
+  inversions become delins), and in 1.4% of the random pairs it writes insertions at positions outside
+  the reference. Its exact agreement with us is 963 of 1000 single-change reads; the rest are
+  duplications written as insertions. It is fast (2-8 µs), because it does no alignment. VarSim's own
+  benchmark data is not in the released repository, so the comparison uses the fixture described in
+  "VarSim comparison" below.
 
 ## Results
 
@@ -81,71 +96,108 @@ PYTHONPATH=src:tests:tools python tools/benchmark.py report results/*.json
 | Mutalyzer 2 description-extractor | git 155b79d | 3.10.20 |
 | Mutalyzer 3 description_extractor | mutalyzer 3.1.1, description-extractor 3.0.0 | 3.12.3 |
 | mutalyzer-algebra | 1.5.2 | 3.12.3 |
+| VarSim extract_with_positions | 2.0.1 | 3.12.3 |
 
 ### HGVS specification examples (25 cases)
 
 | tool | correct and valid HGVS | correct, invalid positions | wrong or error | as expected | changes per case | characters per case | time per case |
 |---|---|---|---|---|---|---|---|
 | hgvs_extractor | 25 | 0 | 0 | 24 | 1.04 | 7.4 | 30 µs |
-| hgvs_extractor (pure Python) | 25 | 0 | 0 | 24 | 1.04 | 7.4 | 29 µs |
+| hgvs_extractor (pure Python) | 25 | 0 | 0 | 24 | 1.04 | 7.4 | 26 µs |
 | countess-variant-caller | 25 | 0 | 0 | 13 | 1.60 | 9.9 | 8 µs |
 | Mutalyzer 2 description-extractor | 25 | 0 | 0 | 19 | 1.16 | 7.6 | 88 µs |
 | Mutalyzer 3 description_extractor | 25 | 0 | 0 | 19 | 1.16 | 7.6 | 77 µs |
 | mutalyzer-algebra | 25 | 0 | 0 | 14 | 1.16 | 8.8 | 77 µs |
+| VarSim extract_with_positions | 25 | 0 | 0 | 16 | 1.00 | 9.5 | 3 µs |
 
 ### description-extractor test cases (18 cases)
 
 | tool | correct and valid HGVS | correct, invalid positions | wrong or error | as expected | changes per case | characters per case | time per case |
 |---|---|---|---|---|---|---|---|
-| hgvs_extractor | 18 | 0 | 0 | 18 | 1.39 | 9.9 | 60 µs |
-| hgvs_extractor (pure Python) | 18 | 0 | 0 | 18 | 1.39 | 9.9 | 71 µs |
+| hgvs_extractor | 18 | 0 | 0 | 18 | 1.39 | 9.9 | 61 µs |
+| hgvs_extractor (pure Python) | 18 | 0 | 0 | 18 | 1.39 | 9.9 | 72 µs |
 | countess-variant-caller | 18 | 0 | 0 | 12 | 1.61 | 12.4 | 6 µs |
 | Mutalyzer 2 description-extractor | 18 | 0 | 0 | 18 | 1.39 | 9.9 | 56 µs |
 | Mutalyzer 3 description_extractor | 18 | 0 | 0 | 17 | 1.39 | 9.8 | 90 µs |
 | mutalyzer-algebra | 18 | 0 | 0 | 11 | 1.44 | 11.2 | 60 µs |
+| VarSim extract_with_positions | 18 | 0 | 0 | 9 | 0.94 | 12.1 | 4 µs |
 
 ### random short pairs (5000 cases)
 
 | tool | correct and valid HGVS | correct, invalid positions | wrong or error | changes per case | characters per case | time per case |
 |---|---|---|---|---|---|---|
-| hgvs_extractor | 5000 | 0 | 0 | 1.99 | 18.0 | 164 µs |
-| hgvs_extractor (pure Python) | 5000 | 0 | 0 | 1.99 | 18.0 | 206 µs |
+| hgvs_extractor | 5000 | 0 | 0 | 1.99 | 18.0 | 140 µs |
+| hgvs_extractor (pure Python) | 5000 | 0 | 0 | 1.99 | 18.0 | 226 µs |
 | countess-variant-caller | 4636 | 217 | 147 | 2.58 | 21.5 | 7 µs |
 | Mutalyzer 2 description-extractor | 4796 | 163 | 41 | 1.70 | 16.5 | 38 µs |
 | Mutalyzer 3 description_extractor | 4836 | 164 | 0 | 1.70 | 16.5 | 125 µs |
 | mutalyzer-algebra | 4787 | 213 | 0 | 1.88 | 18.4 | 112 µs |
+| VarSim extract_with_positions | 4928 | 72 | 0 | 0.97 | 21.3 | 2 µs |
 
-Invalid positions and exceptions: countess-variant-caller: 15 overlapping changes, 105 position 0, 97 position after the end; Mutalyzer 2 description-extractor: 64 position 0, 99 position after the end; Mutalyzer 3 description_extractor: 66 position 0, 98 position after the end; mutalyzer-algebra: 85 position 0, 128 position after the end.
+Invalid positions and exceptions: countess-variant-caller: 15 overlapping changes, 105 position 0, 97 position after the end; Mutalyzer 2 description-extractor: 64 position 0, 99 position after the end; Mutalyzer 3 description_extractor: 66 position 0, 98 position after the end; mutalyzer-algebra: 85 position 0, 128 position after the end; VarSim extract_with_positions: 18 position 0, 54 position after the end.
 
 ### 300 bp, 1 change (1000 cases)
 
 | tool | correct and valid HGVS | correct, invalid positions | wrong or error | changes per case | characters per case | time per case |
 |---|---|---|---|---|---|---|
-| hgvs_extractor | 1000 | 0 | 0 | 1.00 | 7.2 | 14 µs |
-| hgvs_extractor (pure Python) | 1000 | 0 | 0 | 1.00 | 7.2 | 19 µs |
+| hgvs_extractor | 1000 | 0 | 0 | 1.00 | 7.2 | 15 µs |
+| hgvs_extractor (pure Python) | 1000 | 0 | 0 | 1.00 | 7.2 | 17 µs |
 | countess-variant-caller | 1000 | 0 | 0 | 1.00 | 7.2 | 5 µs |
 | Mutalyzer 2 description-extractor | 1000 | 0 | 0 | 1.00 | 7.2 | 22 µs |
 | Mutalyzer 3 description_extractor | 1000 | 0 | 0 | 1.00 | 7.2 | 70 µs |
 | mutalyzer-algebra | 1000 | 0 | 0 | 1.00 | 7.3 | 56 µs |
+| VarSim extract_with_positions | 1000 | 0 | 0 | 1.00 | 7.4 | 14 µs |
 
 ### 300 bp, 3 changes (1000 cases)
 
 | tool | correct and valid HGVS | correct, invalid positions | wrong or error | changes per case | characters per case | time per case |
 |---|---|---|---|---|---|---|
-| hgvs_extractor | 1000 | 0 | 0 | 2.98 | 25.0 | 131 µs |
-| hgvs_extractor (pure Python) | 1000 | 0 | 0 | 2.98 | 25.0 | 201 µs |
+| hgvs_extractor | 1000 | 0 | 0 | 2.98 | 25.0 | 59 µs |
+| hgvs_extractor (pure Python) | 1000 | 0 | 0 | 2.98 | 25.0 | 214 µs |
 | countess-variant-caller | 989 | 0 | 11 | 3.12 | 25.9 | 12 µs |
 | Mutalyzer 2 description-extractor | 1000 | 0 | 0 | 2.96 | 24.9 | 89 µs |
 | Mutalyzer 3 description_extractor | 1000 | 0 | 0 | 2.96 | 24.9 | 267 µs |
 | mutalyzer-algebra | 1000 | 0 | 0 | 2.96 | 25.7 | 324 µs |
+| VarSim extract_with_positions | 1000 | 0 | 0 | 1.00 | 158.7 | 8 µs |
 
 ### 10 kb, 5 changes (20 cases)
 
 | tool | correct and valid HGVS | correct, invalid positions | wrong or error | changes per case | characters per case | time per case |
 |---|---|---|---|---|---|---|
-| hgvs_extractor | 20 | 0 | 0 | 5.00 | 48.6 | 696 µs |
-| hgvs_extractor (pure Python) | 20 | 0 | 0 | 5.00 | 48.6 | 953 µs |
+| hgvs_extractor | 20 | 0 | 0 | 5.00 | 48.6 | 860 µs |
+| hgvs_extractor (pure Python) | 20 | 0 | 0 | 5.00 | 48.6 | 1,023 µs |
 | countess-variant-caller | 20 | 0 | 0 | 5.20 | 50.9 | 1,960 µs |
 | Mutalyzer 2 description-extractor | 20 | 0 | 0 | 5.00 | 48.6 | 752 µs |
 | Mutalyzer 3 description_extractor | 20 | 0 | 0 | 5.00 | 48.4 | 929 µs |
 | mutalyzer-algebra | 20 | 0 | 0 | 5.00 | 50.0 | 19 ms |
+| VarSim extract_with_positions | 20 | 0 | 0 | 1.00 | 6753.8 | 165 µs |
+
+## VarSim comparison
+
+VarSim's benchmark data is not in its released repository (version 2.0.1 focuses on the HGVS
+toolkit). Instead, `tools/make_varsim_fixture.py` runs VarSim's `extract_with_positions`, built from a
+clone of its repository, on our own test cases, and writes `tests/data/varsim_extract_results.json`:
+993 entries, namely the 25 specification examples, description-extractor's 18 test cases, 500 random
+short pairs, 300 single-change reads and 150 three-change reads. VarSim requires an e-mail address at
+import time; the value does not affect extraction.
+
+`tests/test_varsim.py` checks on this fixture that VarSim's descriptions give the observed sequence,
+that ours do too, and that every difference between the two is a known kind. Of the 993 entries:
+
+| agreement | entries |
+|---|---|
+| identical descriptions | 422 |
+| several changes, VarSim one delins covering them | 486 |
+| a duplication, VarSim an insertion of the same bases | 53 |
+| an inversion, VarSim a delins of the same range | 23 |
+| an insertion at a reference end, VarSim position 0 or after the last base | 7 |
+| an insertion of a copy of the reference, VarSim the literal bases | 2 |
+| unexplained | 0 |
+
+Regenerate the fixture with a local build of VarSim:
+
+```sh
+git clone --depth 1 https://github.com/liu-sun/VarSim.git /tmp/VarSim
+EMAIL=you@example.org pip install /tmp/VarSim
+VARSIM_SOURCE=/tmp/VarSim PYTHONPATH=src:tests:tools python tools/make_varsim_fixture.py tests/data/varsim_extract_results.json
+```
