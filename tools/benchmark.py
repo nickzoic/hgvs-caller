@@ -22,6 +22,7 @@ import argparse
 import collections
 import importlib.metadata
 import json
+import os
 import platform
 import random
 import re
@@ -83,7 +84,23 @@ def _algebra() -> tuple[Extractor, str]:
     )
 
 
+def _varsim() -> tuple[Extractor, str]:
+    """VarSim's extract_with_positions, built from its source (varsim 2.0.1); it reads an
+    e-mail address at import time, which its extraction does not use"""
+    os.environ.setdefault("EMAIL", "benchmark@example.invalid")
+    # pylint: disable=import-outside-toplevel,import-error
+    from varsim.extractor import extract_with_positions
+
+    def extract(ref: str, alt: str) -> str:
+        if ref == alt:  # VarSim raises ValueError for identical sequences
+            return "="
+        return extract_with_positions(ref, alt, start_pos=1, prefix="g.")[2:]
+
+    return extract, importlib.metadata.version("varsim")
+
+
 TOOLS: dict[str, Callable[[], tuple[Extractor, str]]] = {
+    "VarSim extract_with_positions": _varsim,
     "hgvs_extractor": lambda: _hgvs_extractor(True),
     "hgvs_extractor (pure Python)": lambda: _hgvs_extractor(False),
     "countess-variant-caller": _countess,
