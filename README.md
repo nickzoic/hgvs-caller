@@ -212,6 +212,11 @@ coverage; a longer fuzz run; linting; and a test of the built package. They incl
   and reproduces the variant; unrelated sequence pairs as well as similar ones; and case, T/U,
   strand and offset changes only change the result as they should. Cases they found are kept
   as regression tests in `tests/test_api.py`.
+- `tests/test_varsim.py`: comparison with VarSim's extraction on 993 of our test cases, run through a
+  local build of VarSim 2.0.1 (`tests/data/varsim_extract_results.json`, made by
+  `tools/make_varsim_fixture.py`). Both tools' descriptions give the variant; each difference is of
+  a known kind (VarSim writes duplications as insertions, inversions as delins, and several changes
+  as one delins).
 - `tests/test_description_extractor.py`: the test cases of Mutalyzer's
   [description-extractor](https://github.com/mutalyzer/description-extractor), and 500 of its
   results on random sequence pairs (see below); all give the same description.
@@ -243,7 +248,7 @@ for 11, all with several inversions close together.
 ## Benchmark
 
 [BENCHMARK.md](BENCHMARK.md) compares hgvs_extractor with countess-variant-caller, Mutalyzer 2's
-description-extractor, Mutalyzer 3's description extractor and mutalyzer-algebra on 7063 cases
+description-extractor, Mutalyzer 3's description extractor, mutalyzer-algebra and VarSim on 7063 cases
 (`tools/benchmark.py`). In brief, on 5000 random short sequence pairs:
 
 | tool | correct, valid HGVS | correct, positions outside the reference | wrong | time per pair |
@@ -253,6 +258,7 @@ description-extractor, Mutalyzer 3's description extractor and mutalyzer-algebra
 | Mutalyzer 2 description-extractor | 95.9% | 3.3% | 0.8% | 38 µs |
 | Mutalyzer 3 description_extractor | 96.7% | 3.3% | 0% | 125 µs |
 | mutalyzer-algebra | 95.7% | 4.3% | 0% | 112 µs |
+| VarSim | 98.6% | 1.4% | 0% | 2 µs |
 
 hgvs_extractor also gave the HGVS specification's description for the most of its examples
 (24 of 25, against 19 for Mutalyzer). countess-variant-caller is the fastest. hgvs_extractor is
