@@ -12,6 +12,7 @@ two sequences, so they are not included.)
 | Mutalyzer 2 [description-extractor](https://github.com/mutalyzer/description-extractor) | git 155b79d | shortest description by weights (Vis et al., Bioinformatics 2015) | C++ with a Python wrapper |
 | Mutalyzer 3 `mutalyzer.description_extractor` | mutalyzer 3.1.1 | description-extractor 3.0.0 and Mutalyzer 3's description model | C++ and Python |
 | [mutalyzer-algebra](https://github.com/mutalyzer/algebra) `extract_sequence` | 1.5.2 | graph of all minimal alignments (Santcroos et al., 2025) | Python |
+| [VarSim](https://github.com/liu-sun/VarSim) `extract_with_positions` | 2.0.1 (commit 045fff3) | diff of the first and last differing bases (one delins for all changes between them) | Python (Biopython) |
 
 ## Method
 
@@ -75,6 +76,15 @@ PYTHONPATH=src:tests:tools python tools/benchmark.py report results/*.json
   rapidfuzz; without it, by the banded aligner. The two give the same number of edits, and they
   differ in 3 of the 5000 random short pairs (both correct and valid); none of the other datasets
   differ.
+* **VarSim** (2.0.1, built from its repository). Its extraction is correct, in that its descriptions
+  give the observed sequence in every case, but it is much less specific. It writes all the changes
+  between the first and last differing bases as one delin, so the three-change reads come out at 159
+  characters against 25 for us. It never writes `dup` or `inv` (duplications become insertions,
+  inversions become delins), and in 1.4% of the random pairs it writes insertions at positions outside
+  the reference. Its exact agreement with us is 963 of 1000 single-change reads; the rest are
+  duplications written as insertions. It is fast (2-8 µs), because it does no alignment. VarSim's own
+  benchmark data is not in the released repository, so the comparison uses the fixture described in
+  "VarSim comparison" below.
 
 ## Results
 
@@ -86,6 +96,7 @@ PYTHONPATH=src:tests:tools python tools/benchmark.py report results/*.json
 | Mutalyzer 2 description-extractor | git 155b79d | 3.10.20 |
 | Mutalyzer 3 description_extractor | mutalyzer 3.1.1, description-extractor 3.0.0 | 3.12.3 |
 | mutalyzer-algebra | 1.5.2 | 3.12.3 |
+| VarSim extract_with_positions | 2.0.1 | 3.12.3 |
 
 ### HGVS specification examples (25 cases)
 
@@ -97,6 +108,7 @@ PYTHONPATH=src:tests:tools python tools/benchmark.py report results/*.json
 | Mutalyzer 2 description-extractor | 25 | 0 | 0 | 19 | 1.16 | 7.6 | 88 µs |
 | Mutalyzer 3 description_extractor | 25 | 0 | 0 | 19 | 1.16 | 7.6 | 77 µs |
 | mutalyzer-algebra | 25 | 0 | 0 | 14 | 1.16 | 8.8 | 77 µs |
+| VarSim extract_with_positions | 25 | 0 | 0 | 16 | 1.00 | 9.5 | 3 µs |
 
 ### description-extractor test cases (18 cases)
 
@@ -108,6 +120,7 @@ PYTHONPATH=src:tests:tools python tools/benchmark.py report results/*.json
 | Mutalyzer 2 description-extractor | 18 | 0 | 0 | 18 | 1.39 | 9.9 | 56 µs |
 | Mutalyzer 3 description_extractor | 18 | 0 | 0 | 17 | 1.39 | 9.8 | 90 µs |
 | mutalyzer-algebra | 18 | 0 | 0 | 11 | 1.44 | 11.2 | 60 µs |
+| VarSim extract_with_positions | 18 | 0 | 0 | 9 | 0.94 | 12.1 | 4 µs |
 
 ### random short pairs (5000 cases)
 
@@ -119,8 +132,9 @@ PYTHONPATH=src:tests:tools python tools/benchmark.py report results/*.json
 | Mutalyzer 2 description-extractor | 4796 | 163 | 41 | 1.70 | 16.5 | 38 µs |
 | Mutalyzer 3 description_extractor | 4836 | 164 | 0 | 1.70 | 16.5 | 125 µs |
 | mutalyzer-algebra | 4787 | 213 | 0 | 1.88 | 18.4 | 112 µs |
+| VarSim extract_with_positions | 4928 | 72 | 0 | 0.97 | 21.3 | 2 µs |
 
-Invalid positions and exceptions: countess-variant-caller: 15 overlapping changes, 105 position 0, 97 position after the end; Mutalyzer 2 description-extractor: 64 position 0, 99 position after the end; Mutalyzer 3 description_extractor: 66 position 0, 98 position after the end; mutalyzer-algebra: 85 position 0, 128 position after the end.
+Invalid positions and exceptions: countess-variant-caller: 15 overlapping changes, 105 position 0, 97 position after the end; Mutalyzer 2 description-extractor: 64 position 0, 99 position after the end; Mutalyzer 3 description_extractor: 66 position 0, 98 position after the end; mutalyzer-algebra: 85 position 0, 128 position after the end; VarSim extract_with_positions: 18 position 0, 54 position after the end.
 
 ### 300 bp, 1 change (1000 cases)
 
@@ -132,6 +146,7 @@ Invalid positions and exceptions: countess-variant-caller: 15 overlapping change
 | Mutalyzer 2 description-extractor | 1000 | 0 | 0 | 1.00 | 7.2 | 22 µs |
 | Mutalyzer 3 description_extractor | 1000 | 0 | 0 | 1.00 | 7.2 | 70 µs |
 | mutalyzer-algebra | 1000 | 0 | 0 | 1.00 | 7.3 | 56 µs |
+| VarSim extract_with_positions | 1000 | 0 | 0 | 1.00 | 7.4 | 14 µs |
 
 ### 300 bp, 3 changes (1000 cases)
 
@@ -143,6 +158,7 @@ Invalid positions and exceptions: countess-variant-caller: 15 overlapping change
 | Mutalyzer 2 description-extractor | 1000 | 0 | 0 | 2.96 | 24.9 | 89 µs |
 | Mutalyzer 3 description_extractor | 1000 | 0 | 0 | 2.96 | 24.9 | 267 µs |
 | mutalyzer-algebra | 1000 | 0 | 0 | 2.96 | 25.7 | 324 µs |
+| VarSim extract_with_positions | 1000 | 0 | 0 | 1.00 | 158.7 | 8 µs |
 
 ### 10 kb, 5 changes (20 cases)
 
@@ -154,3 +170,34 @@ Invalid positions and exceptions: countess-variant-caller: 15 overlapping change
 | Mutalyzer 2 description-extractor | 20 | 0 | 0 | 5.00 | 48.6 | 752 µs |
 | Mutalyzer 3 description_extractor | 20 | 0 | 0 | 5.00 | 48.4 | 929 µs |
 | mutalyzer-algebra | 20 | 0 | 0 | 5.00 | 50.0 | 19 ms |
+| VarSim extract_with_positions | 20 | 0 | 0 | 1.00 | 6753.8 | 165 µs |
+
+## VarSim comparison
+
+VarSim's benchmark data is not in its released repository (version 2.0.1 focuses on the HGVS
+toolkit). Instead, `tools/make_varsim_fixture.py` runs VarSim's `extract_with_positions`, built from a
+clone of its repository, on our own test cases, and writes `tests/data/varsim_extract_results.json`:
+993 entries, namely the 25 specification examples, description-extractor's 18 test cases, 500 random
+short pairs, 300 single-change reads and 150 three-change reads. VarSim requires an e-mail address at
+import time; the value does not affect extraction.
+
+`tests/test_varsim.py` checks on this fixture that VarSim's descriptions give the observed sequence,
+that ours do too, and that every difference between the two is a known kind. Of the 993 entries:
+
+| agreement | entries |
+|---|---|
+| identical descriptions | 422 |
+| several changes, VarSim one delins covering them | 486 |
+| a duplication, VarSim an insertion of the same bases | 53 |
+| an inversion, VarSim a delins of the same range | 23 |
+| an insertion at a reference end, VarSim position 0 or after the last base | 7 |
+| an insertion of a copy of the reference, VarSim the literal bases | 2 |
+| unexplained | 0 |
+
+Regenerate the fixture with a local build of VarSim:
+
+```sh
+git clone --depth 1 https://github.com/liu-sun/VarSim.git /tmp/VarSim
+EMAIL=you@example.org pip install /tmp/VarSim
+VARSIM_SOURCE=/tmp/VarSim PYTHONPATH=src:tests:tools python tools/make_varsim_fixture.py tests/data/varsim_extract_results.json
+```
